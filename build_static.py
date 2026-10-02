@@ -83,6 +83,17 @@ def main():
         f.write(blob)
     open(os.path.join(DIST, ".nojekyll"), "w").close()  # GitHub Pages: отдавать файлы как есть
 
+    # Открытый статус источников: какие ответили, какие нет. Без данных и без секретов —
+    # чтобы проверять сборку, не заходя в лог GitHub Actions.
+    fred_key = os.environ.get("FRED_API_KEY", "")
+    status = {
+        "generated_at": data["generated_at"],
+        "sources": {k: {"cache": v["cache"], "error": (v.get("error") or "").replace(fred_key or "\0", "***") or None}
+                    for k, v in data["sources"].items()},
+    }
+    with open(os.path.join(DIST, "status.json"), "w", encoding="utf-8") as f:
+        json.dump(status, f, ensure_ascii=False, indent=1)
+
     # Включаем на странице статический режим: данные из data.enc вместо /api/data.
     index = os.path.join(DIST, "index.html")
     with open(index, encoding="utf-8") as f:

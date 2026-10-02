@@ -166,6 +166,11 @@ button:disabled { opacity: 0.6; cursor: progress; }
 input[type="number"] { width: 70px; }
 label { font-size: 14px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
 .narrow-only { display: none; }
+/* Сенсорный экран: подсказка про жесты; вертикальная прокрутка остаётся браузеру,
+   горизонтальный сдвиг и масштаб двумя пальцами обрабатывает app.js */
+html.touch .wide-only { display: none; }
+html.touch .narrow-only { display: block; }
+html.touch .chart { touch-action: pan-y; }
 .hint { color: var(--muted); font-size: 13px; margin: 8px 2px 0; }
 
 /* Панели графиков */
@@ -192,8 +197,7 @@ label { font-size: 14px; color: var(--muted); display: inline-flex; gap: 6px; al
 @media (max-width: 640px) {
   h1 { font-size: 21px; }
   .presets button, .tabs button { padding: 8px 12px; }
-  .wide-only { display: none; }
-  .narrow-only { display: block; }
+
   .info { width: 28px; height: 28px; line-height: 26px; top: 6px; right: 6px; }
   .chart { height: 300px; }
   .status { text-align: left; }

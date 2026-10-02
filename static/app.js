@@ -1203,8 +1203,10 @@ function baseLayout(tab, { unit = '', zeroLine = false, shapes = [], annotations
   };
 }
 
-// Узкий экран (телефон) — графики раскладываются иначе, см. renderCharts().
+// Узкий экран (телефон) — легенда и высота графиков раскладываются иначе, см. renderCharts().
 const NARROW = matchMedia('(max-width: 640px)');
+// Сенсорный экран (телефон, планшет) — жесты вместо мыши, см. bindTouchGestures().
+const TOUCH = matchMedia('(pointer: coarse)');
 
 const PLOT_CONFIG = { responsive: true, displaylogo: false, locale: 'ru', modeBarButtonsToRemove: ['lasso2d', 'select2d'] };
 
@@ -1826,8 +1828,12 @@ function renderCharts(tab) {
 
     // Телефон: легенда в две колонки мелким шрифтом, высота графика растёт с числом рядов,
     // чтобы легенда не съедала область графика; панель кнопок Plotly скрыта.
-    // Касания: протягивание по графику прокручивает страницу (а не рисует рамку зума),
-    // касание показывает значения на дату; период выбирается кнопками и полями дат.
+    // Сенсорный экран: встроенный зум Plotly выключен — сдвиг и масштаб делают свои жесты
+    // (bindTouchGestures), а вертикальное протягивание прокручивает страницу.
+    if (TOUCH.matches) {
+      layout.dragmode = false;
+      layout.xaxis.fixedrange = true;
+    }
     if (NARROW.matches) {
       // Пары «лонг/шорт» — одна строка легенды на группу (касание скрывает обе линии).
       for (const t of data) {
@@ -1848,8 +1854,6 @@ function renderCharts(tab) {
       };
       layout.margin.l = 44;
       layout.height = 250 + Math.ceil(shown.length / (twoCols ? 2 : 1)) * 20;
-      layout.dragmode = false;
-      layout.xaxis.fixedrange = true;
       el.style.height = `${layout.height}px`;
     } else {
       delete layout.height;
@@ -1861,7 +1865,7 @@ function renderCharts(tab) {
       const [axis, prop] = path.split('.');
       if (layout[axis]) layout[axis][prop] = v;
     }
-    Plotly.react(el, data, layout, { ...PLOT_CONFIG, displayModeBar: !NARROW.matches });
+    Plotly.react(el, data, layout, { ...PLOT_CONFIG, displayModeBar: !NARROW.matches && !TOUCH.matches });
     if (!el.dataset.bound) bindChartEvents(el, def);
 
     const sources = [def.source, `полосы — ${tab === 'ru' ? SRC.ruCrises : `рецессии ${SRC.nber}`}`];
@@ -1874,8 +1878,80 @@ function renderCharts(tab) {
   }
 }
 
+/**
+ * Жесты на сенсорном экране:
+ *   один палец влево-вправо — сдвиг периода; вверх-вниз — обычная прокрутка страницы
+ *   (CSS touch-action: pan-y оставляет вертикаль браузеру);
+ *   два пальца — приблизить/отдалить вокруг точки между пальцами;
+ *   касание без движения — Plotly показывает значения на дату.
+ * Во время жеста перерисовывается только этот график; когда пальцы отпущены,
+ * новый период применяется ко всем графикам (каждый — в пределах своих данных).
+ */
+function bindTouchGestures(el) {
+  let g = null;           // состояние текущего жеста
+  let frame = 0;          // запланированная перерисовка (не чаще кадра экрана)
+  const xa = () => el._fullLayout.xaxis;
+  const toStr = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+  const minSpan = 30 * DAY_MS;
+
+  const redraw = () => {
+    frame = 0;
+    if (!g || !g.cur) return;
+    state.syncing = true;  // не запускать синхронизацию всех графиков на каждом кадре
+    Plotly.relayout(el, { 'xaxis.range': g.cur.map(toStr) }).finally(() => { state.syncing = false; });
+  };
+
+  el.addEventListener('touchstart', (e) => {
+    if (!TOUCH.matches || !el._fullLayout) return;
+    const [a, b] = xa().range.map((r) => xa().r2l(r));
+    if (e.touches.length === 2) {
+      const [t1, t2] = e.touches;
+      g = { kind: 'pinch', a, b, dist: Math.abs(t1.clientX - t2.clientX) || 1, mid: (t1.clientX + t2.clientX) / 2 };
+    } else if (e.touches.length === 1) {
+      g = { kind: 'pending', a, b, x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+  }, { passive: true });
+
+  el.addEventListener('touchmove', (e) => {
+    if (!g) return;
+    const span = g.b - g.a;
+    const len = xa()._length;
+    if (g.kind === 'pending') {
+      const dx = e.touches[0].clientX - g.x, dy = e.touches[0].clientY - g.y;
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;            // ещё касание, а не жест
+      if (Math.abs(dy) > Math.abs(dx)) { g = null; return; }        // вертикаль — прокрутка страницы
+      g.kind = 'pan';
+    }
+    if (g.kind === 'pan' && e.touches.length === 1) {
+      const shift = (-(e.touches[0].clientX - g.x) / len) * span;
+      g.cur = [g.a + shift, g.b + shift];
+    } else if (g.kind === 'pinch' && e.touches.length === 2) {
+      const [t1, t2] = e.touches;
+      const dist = Math.abs(t1.clientX - t2.clientX) || 1;
+      const left = el.getBoundingClientRect().left + xa()._offset;
+      const f = Math.min(1, Math.max(0, (g.mid - left) / len));   // доля ширины, где пальцы
+      const center = g.a + f * span;
+      const maxSpan = toDate(state.ind.lastDate) - toDate(state.ind.firstDate);
+      const newSpan = Math.min(Math.max((span * g.dist) / dist, minSpan), maxSpan);
+      g.cur = [center - f * newSpan, center + (1 - f) * newSpan];
+    } else {
+      return;
+    }
+    if (e.cancelable) e.preventDefault();
+    if (!frame) frame = requestAnimationFrame(redraw);
+  }, { passive: false });
+
+  const finish = () => {
+    if (g && g.cur) setRange(toIso(new Date(g.cur[0])), toIso(new Date(g.cur[1])));
+    g = null;
+  };
+  el.addEventListener('touchend', (e) => { if (!e.touches.length) finish(); });
+  el.addEventListener('touchcancel', () => { g = null; });
+}
+
 function bindChartEvents(el, def) {
   el.dataset.bound = '1';
+  bindTouchGestures(el);
 
   // Зум по X на любом графике → применяем ко всем.
   el.on('plotly_relayout', (ev) => {
@@ -1907,6 +1983,11 @@ function bindChartEvents(el, def) {
 
 function setRange(from, to, presetKey = null) {
   if (from > to) [from, to] = [to, from];
+  // Не уходим за пределы всех данных (например, при сильном отдалении двумя пальцами).
+  if (state.ind) {
+    if (from < state.ind.firstDate) from = state.ind.firstDate;
+    if (to > state.ind.lastDate) to = state.ind.lastDate;
+  }
   state.range = [from, to];
   $('#from').value = from;
   $('#to').value = to;
@@ -2158,6 +2239,10 @@ function init() {
     $('#logout').hidden = false;
     $('#logout').addEventListener('click', () => { forgetKey(); location.reload(); });
   }
+
+  const markTouch = () => document.documentElement.classList.toggle('touch', TOUCH.matches);
+  markTouch();
+  TOUCH.addEventListener('change', () => { markTouch(); if (state.ind) renderCharts(state.tab); });
 
   // Переход через ширину телефона (поворот экрана, изменение окна) → перерисовать графики.
   NARROW.addEventListener('change', () => state.ind && renderCharts(state.tab));
