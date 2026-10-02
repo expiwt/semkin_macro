@@ -656,7 +656,6 @@ function computeIndicators() {
   const nwfTotal = mapValues(series('NWF_TOTAL'), (v) => v / 1000);
   const nwfLiquid = combine(series('NWF_TOTAL'), series('NWF_OTHER'), (t, o) => (t - o) / 1000);
 
-  const usDaily = [...Object.values(y), hy, baa];
   state.ind = {
     window, yields: y, curve2y, curve3m, flag,
     inversion: inversionStatus(flag),
@@ -696,8 +695,11 @@ function computeIndicators() {
     defenseSipri: mapValues(series('SIPRI_RU_RUB'), (v) => v / 1000),
     sipriGdp: series('SIPRI_RU_GDP'), sipriGov: series('SIPRI_RU_GOV'),
 
-    lastDate: usDaily.map((s) => s.dates[s.dates.length - 1]).filter(Boolean).sort().pop(),
-    firstDate: Object.values(y).map((s) => s.dates[0]).filter(Boolean).sort()[0],
+    // Последняя дата по всем рядам (US и Россия) — правая граница периода.
+    lastDate: Object.values(state.raw.series).map((s) => s.dates[s.dates.length - 1]).filter(Boolean).sort().pop(),
+    // Самая ранняя дата среди рядов на графиках (USREC — только полосы рецессий, с 1854 г., не в счёт).
+    firstDate: Object.entries(state.raw.series).filter(([id]) => id !== 'USREC')
+      .map(([, s]) => s.dates[0]).filter(Boolean).sort()[0],
   };
 }
 
@@ -1703,8 +1705,34 @@ function buildPanels(tab) {
 }
 
 /** Пределы видимых значений по оси (y или y2) в текущем окне дат. */
-function visibleExtent(traces, axis) {
+/**
+ * Окно дат для конкретного графика: общий выбранный период, обрезанный по его собственным
+ * данным — чтобы слева и справа не было пустого места, если ряд начинается позже
+ * или заканчивается раньше. Если период целиком вне данных графика — показываем как есть.
+ */
+function chartRange(traces) {
   const [from, to] = state.range;
+  let first = '9999', lastD = '0000', hasBars = false;
+  for (const tr of traces) {
+    if (tr.meta || !tr.x || !tr.x.length) continue;  // служебные ряды и наложенный индекс не в счёт
+    const xs = tr.x.filter((x, i) => x && tr.y[i] != null);
+    if (!xs.length) continue;
+    if (xs[0] < first) first = xs[0];
+    if (xs[xs.length - 1] > lastD) lastD = xs[xs.length - 1];
+    if (tr.type === 'bar') hasBars = true;
+  }
+  if (first === '9999') return [from, to];
+  if (hasBars) {  // годовые столбцы стоят на середине года — оставляем место под их ширину
+    first = toIso(new Date(toDate(first) - 200 * DAY_MS));
+    lastD = toIso(new Date(toDate(lastD).getTime() + 200 * DAY_MS));
+  }
+  const a = from > first ? from : first;
+  const b = to < lastD ? to : lastD;
+  return a < b ? [a, b] : [from, to];
+}
+
+function visibleExtent(traces, axis, range) {
+  const [from, to] = range;
   let lo = Infinity, hi = -Infinity;
   for (const tr of traces) {
     if (tr.visible === 'legendonly' || tr.visible === false) continue;
@@ -1744,8 +1772,8 @@ function logRange([lo, hi]) {
  * Подбирает диапазон оси Y под видимые данные в текущем окне дат
  * (Plotly сам этого не делает при зуме только по X).
  */
-function yRangeFor(traces, def) {
-  const ext = visibleExtent(traces, 'y');
+function yRangeFor(traces, def, range) {
+  const ext = visibleExtent(traces, 'y', range);
   if (!ext) return [0, 1];
   if (def.log) return logRange(ext);
   let [lo, hi] = ext;
@@ -1757,14 +1785,15 @@ function yRangeFor(traces, def) {
 
 /** Обновления осей Y (и правой оси наложенного индекса) под текущее окно дат. */
 function axisUpdate(traces, def) {
-  const r = yRangeFor(traces, def);
-  const upd = { 'yaxis.range': r };
+  const xr = chartRange(traces);
+  const r = yRangeFor(traces, def, xr);
+  const upd = { 'xaxis.range': xr, 'yaxis.range': r };
   if (def.log) {
     const t = logTicks(r);
     upd['yaxis.tickvals'] = t.tickvals;
     upd['yaxis.ticktext'] = t.ticktext;
   }
-  const ext2 = visibleExtent(traces, 'y2');
+  const ext2 = visibleExtent(traces, 'y2', xr);
   if (ext2) {
     const r2 = logRange(ext2);
     const t = logTicks(r2);
@@ -1890,7 +1919,7 @@ function setRange(from, to, presetKey = null) {
   Promise.all(tabCharts(state.tab).map((def) => {
     const el = document.getElementById(def.id);
     if (!el || !el.data) return null;
-    return Plotly.relayout(el, { 'xaxis.range': [from, to], ...axisUpdate(el.data, def) });
+    return Plotly.relayout(el, axisUpdate(el.data, def));
   })).finally(() => { state.syncing = false; });
 }
 
@@ -2040,7 +2069,8 @@ async function load(force = false) {
       state.raw = await resp.json();
     }
     computeIndicators();
-    if (!state.range) state.range = [DEFAULT_FROM, state.ind.lastDate];
+    // По умолчанию — вся история: каждый график начинается с начала своих данных.
+    if (!state.range) state.range = [state.ind.firstDate, state.ind.lastDate];
     $('#from').value = state.range[0];
     $('#to').value = state.range[1];
     renderTab();
