@@ -1,0 +1,192 @@
+/* Цветовые токены: светлая тема по умолчанию, тёмная — по системной настройке. */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --border: #e2e5ea;
+  --text: #1b1f27;
+  --muted: #5d6573;
+  --grid: #e9ecf0;
+  --accent: #2f6fdf;
+  --recession: rgba(110, 118, 132, 0.18);
+  --overlay: #8a919e;
+
+  /* Палитра рядов */
+  --s-3m: #d9822b;
+  --s-2y: #c2417c;
+  --s-5y: #7b5cd6;
+  --s-10y: #2f6fdf;
+  --s-30y: #1f9a8a;
+
+  /* Зоны и статусы */
+  --calm: #2e9e5b;
+  --caution: #d6a21e;
+  --stress: #e0702a;
+  --panic: #d23f3f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151b; --surface: #1a1e26; --border: #2b313c; --text: #e6e9ef; --muted: #9aa3b2;
+    --grid: #262b35; --accent: #6b9cf5; --recession: rgba(160, 170, 190, 0.16); --overlay: #8d95a3;
+    --s-3m: #f0a050; --s-2y: #e46aa3; --s-5y: #a189f0; --s-10y: #6b9cf5; --s-30y: #3cc3ae;
+    --calm: #4cc27e; --caution: #e8bd45; --stress: #f08c4a; --panic: #f06363;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12151b; --surface: #1a1e26; --border: #2b313c; --text: #e6e9ef; --muted: #9aa3b2;
+  --grid: #262b35; --accent: #6b9cf5; --recession: rgba(160, 170, 190, 0.16); --overlay: #8d95a3;
+  --s-3m: #f0a050; --s-2y: #e46aa3; --s-5y: #a189f0; --s-10y: #6b9cf5; --s-30y: #3cc3ae;
+  --calm: #4cc27e; --caution: #e8bd45; --stress: #f08c4a; --panic: #f06363;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.wrap { max-width: 1280px; margin: 0 auto; padding: 24px 16px 48px; }
+
+.top { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.brand { font-size: 13px; font-weight: 800; letter-spacing: 0.18em; color: var(--accent); margin-bottom: 4px; }
+.brand span { font-weight: 500; letter-spacing: 0.12em; color: var(--muted); }
+h1 { font-size: 26px; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 17px; margin: 0 0 4px; }
+h3.group { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 18px 0 8px; font-weight: 600; }
+h2.section { font-size: 20px; margin: 32px 0 12px; }
+.sub { margin: 4px 0 0; color: var(--muted); }
+.status { color: var(--muted); font-size: 13px; text-align: right; max-width: 520px; }
+.status.err { color: var(--panic); }
+
+.disclaimer {
+  margin: 16px 0 4px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--caution);
+  background: var(--surface);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.disclaimer strong { color: var(--text); }
+
+/* Экран входа по паролю */
+.lock {
+  position: fixed; inset: 0; z-index: 100; background: var(--bg);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.lock-box {
+  width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px;
+}
+.lock-box h2 { margin: 0; font-size: 22px; }
+.lock-hint { margin: 0; color: var(--muted); font-size: 14px; }
+.lock-box input[type="password"] { font-size: 16px; padding: 10px 12px; }
+.lock-remember { font-size: 13px; }
+.lock-box button { padding: 10px; font-weight: 600; background: var(--accent); border-color: var(--accent); color: #fff; }
+.lock-error { margin: 0; min-height: 1.2em; color: var(--panic); font-size: 14px; }
+.status-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+button.link { background: none; border: none; padding: 0; color: var(--accent); font-size: 13px; cursor: pointer; }
+
+/* Вкладки стран */
+.tabs { display: flex; gap: 4px; margin: 20px 0 0; border-bottom: 1px solid var(--border); }
+.tabs button {
+  border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0;
+  background: none; padding: 8px 20px; font-size: 15px; font-weight: 600; color: var(--muted);
+  margin-bottom: -1px;
+}
+.tabs button[aria-selected="true"] { background: var(--surface); border-color: var(--border); color: var(--text); }
+.tabs button:hover { color: var(--text); }
+[hidden] { display: none !important; }
+
+/* Сводные карточки */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+}
+.card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  border-top: 4px solid var(--zone, var(--border));
+}
+.card .label { font-size: 13px; color: var(--muted); padding-right: 26px; }
+.card .value { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; margin: 2px 0; }
+.card .value small { font-size: 14px; font-weight: 500; color: var(--muted); }
+.card .zone { font-size: 13px; font-weight: 600; color: var(--zone, var(--muted)); }
+.card .detail { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.card .yields { display: grid; grid-template-columns: repeat(5, auto); gap: 2px 10px; font-variant-numeric: tabular-nums; font-size: 13px; margin-top: 4px; }
+.card .yields span { white-space: nowrap; }
+.card .yields span:nth-child(-n+5) { color: var(--muted); font-size: 12px; }
+
+/* Кнопка «?» и всплывающее пояснение на карточке: по наведению или по фокусу (тап на телефоне) */
+.info {
+  position: absolute; top: 10px; right: 10px;
+  width: 20px; height: 20px; padding: 0; border-radius: 50%;
+  font-size: 12px; font-weight: 700; line-height: 18px; text-align: center;
+  color: var(--muted); background: var(--bg); border: 1px solid var(--border); cursor: help;
+}
+.tip {
+  display: none;
+  position: absolute; left: -1px; right: -1px; top: calc(100% + 6px); z-index: 20;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+  font-size: 13px; line-height: 1.45;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+}
+.card:hover .tip, .card:focus-within .tip { display: block; }
+
+/* Панель управления */
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 12px; margin-top: 24px;
+}
+/* На широких экранах панель управления остаётся на виду при прокрутке */
+@media (min-width: 1100px) {
+  .controls { position: sticky; top: 0; z-index: 10; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12); }
+}
+.presets { display: flex; flex-wrap: wrap; gap: 4px; }
+button, input, select {
+  font: inherit; font-size: 14px; color: var(--text);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 10px;
+}
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.ghost { margin-left: auto; }
+button:disabled { opacity: 0.6; cursor: progress; }
+input[type="number"] { width: 70px; }
+label { font-size: 14px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+.hint { color: var(--muted); font-size: 13px; margin: 8px 2px 0; }
+
+/* Панели графиков */
+.panel {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px 14px 10px; margin-bottom: 16px;
+}
+.note { color: var(--muted); font-size: 13px; margin: 0 0 6px; max-width: 920px; }
+.chart { width: 100%; height: 380px; }
+
+/* Пояснения к рядам под графиком */
+.explain {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px 20px; margin: 8px 0 0; padding: 10px 0 0; border-top: 1px solid var(--border);
+}
+.explain div { font-size: 13px; color: var(--muted); }
+.explain b { color: var(--text); font-weight: 600; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: 0; }
+
+.foot { color: var(--muted); font-size: 12px; margin-top: 24px; }
+
+@media (max-width: 640px) {
+  h1 { font-size: 21px; }
+  .chart { height: 300px; }
+  .status { text-align: left; }
+  .status-wrap { align-items: flex-start; }
+  button.ghost { margin-left: 0; }
+}

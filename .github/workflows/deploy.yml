@@ -1,0 +1,66 @@
+# SEMKIN macro: ежедневная сборка данных и публикация на GitHub Pages.
+# Данные шифруются паролем из секрета DASHBOARD_PASSWORD (см. build_static.py).
+name: Сборка и публикация
+
+on:
+  schedule:
+    - cron: "0 4 * * *"   # каждый день в 04:00 UTC = 07:00 МСК
+  workflow_dispatch:       # кнопка «Run workflow» во вкладке Actions
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120   # первый запуск докачивает историю put/call и ОФЗ — до ~40 минут
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install cryptography
+
+      # Кэш данных между запусками: дальше докачиваются только новые дни.
+      - uses: actions/cache/restore@v4
+        with:
+          path: cache
+          key: data-cache-${{ github.run_id }}
+          restore-keys: data-cache-
+
+      - name: Скачать данные и собрать сайт
+        run: python build_static.py
+        env:
+          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: cache
+          key: data-cache-${{ github.run_id }}
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

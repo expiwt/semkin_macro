@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SEMKIN macro</title>
+<link rel="stylesheet" href="style.css">
+<!-- Статический режим (GitHub Pages): build_static.py заменяет false на true -->
+<script>window.SEMKIN_STATIC = false;</script>
+<!-- Plotly: графики с зумом, легендой-переключателем и подсказками при наведении -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.0/plotly.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.0/plotly-locale-ru.min.js"></script>
+</head>
+<body>
+<!-- Вход по паролю (только в статическом режиме): данные зашифрованы и расшифровываются в браузере -->
+<div class="lock" id="lock" hidden>
+  <form class="lock-box" id="lock-form" autocomplete="on">
+    <div class="brand">SEMKIN <span>macro</span></div>
+    <h2>Вход</h2>
+    <p class="lock-hint">Данные на этом сайте зашифрованы. Введите пароль, чтобы открыть дашборд.</p>
+    <input type="text" name="username" value="semkin-macro" autocomplete="username" hidden>
+    <input type="password" id="lock-password" autocomplete="current-password" placeholder="Пароль" required>
+    <label class="lock-remember"><input type="checkbox" id="lock-remember" checked> Запомнить на этом устройстве</label>
+    <button type="submit" id="lock-submit">Открыть</button>
+    <p class="lock-error" id="lock-error" role="alert"></p>
+  </form>
+</div>
+
+<main class="wrap">
+  <header class="top">
+    <div>
+      <div class="brand">SEMKIN <span>macro</span></div>
+      <h1>Ранние индикаторы рецессии</h1>
+      <p class="sub">Кривая доходности, кредитные спреды, рыночное плечо и позиции инвесторов на фоне прошлых кризисов</p>
+    </div>
+    <div class="status-wrap">
+      <div class="status" id="status">Загрузка данных…</div>
+      <button id="logout" class="link" hidden>Выйти</button>
+    </div>
+  </header>
+
+  <aside class="disclaimer" role="note">
+    <strong>Аналитический и образовательный инструмент.</strong>
+    Индикаторы оценивают зрелость экономического цикла и рост вероятности рецессии, но не
+    предсказывают точных дат и сроков. Исторические закономерности могут не повториться.
+    Это не инвестиционная рекомендация и не торговый сигнал.
+  </aside>
+
+  <!-- Вкладки стран -->
+  <nav class="tabs" role="tablist" aria-label="Страна">
+    <button role="tab" data-tab="us" aria-selected="true">США</button>
+    <button role="tab" data-tab="ru" aria-selected="false">Россия</button>
+  </nav>
+
+  <!-- Сводная панель активной вкладки: текущее значение и зона каждого индикатора. «?» — пояснение. -->
+  <section id="cards-us" class="tab-pane" aria-live="polite"></section>
+  <section id="cards-ru" class="tab-pane" aria-live="polite" hidden></section>
+
+  <!-- Управление диапазоном дат и параметрами (общее для обеих вкладок) -->
+  <section class="controls">
+    <div class="presets" role="group" aria-label="Быстрый выбор периода">
+      <button data-preset="1">1 год</button>
+      <button data-preset="3">3 года</button>
+      <button data-preset="10">10 лет</button>
+      <button data-preset="20">20 лет</button>
+      <button data-preset="1985" class="active">С 1985</button>
+      <button data-preset="all">Всё</button>
+    </div>
+    <label>С <input type="date" id="from"></label>
+    <label>По <input type="date" id="to"></label>
+    <label title="Окно для скорости изменения кредитных спредов, в торговых днях">
+      Окно ROC <input type="number" id="window" min="5" max="500" step="5" value="60"> дн.
+    </label>
+    <label title="Добавить индекс акций на правую шкалу каждого графика">
+      Наложить индекс <select id="overlay"></select>
+    </label>
+    <button id="refresh" class="ghost" title="Принудительно перекачать данные из источников, минуя кэш">Обновить данные</button>
+  </section>
+
+  <p class="hint">Клик по элементу легенды включает и выключает ряд, двойной клик оставляет только его.
+    Выделение мышью на любом графике масштабирует все графики сразу, двойной клик возвращает всю историю.
+    Серые полосы — рецессии и кризисы. Под каждым графиком объяснено, что означает каждый ряд.</p>
+
+  <!-- Разделы и панели графиков создаются в app.js из описания CHARTS -->
+  <div id="charts-us" class="tab-pane"></div>
+  <div id="charts-ru" class="tab-pane" hidden></div>
+
+  <footer class="foot">
+    <p><b>Источники.</b>
+      FRED: доходности трежерис, ICE BofA HY OAS, Baa − 10Y, M2, капитализация (Z.1), S&amp;P 500, NASDAQ, рецессии NBER.
+      ФРС: GZ-спред и EBP. FINRA: маржинальный долг, short interest. CFTC: Commitments of Traders, Traders in Financial Futures.
+      CBOE: put/call ratio. Мосбиржа: индексы IMOEX, RTS, RGBI, корпоративных облигаций, кривая ОФЗ, открытые позиции
+      по фьючерсам. Банк России: ключевая ставка, курс доллара.</p>
+    <p><b>Ограничения.</b> ICE BofA HY OAS на FRED — только последние ~3 года, вместо истории — GZ-спред ФРС и Baa − 10Y.
+      Wilshire 5000 больше не публикуется на FRED, вместо него — капитализация из отчёта ФРС Z.1. Позиции физлиц и юрлиц
+      Мосбиржи бесплатно доступны с 2020 г. и с задержкой 14 дней. Перевод позиций в деньги — по текущей спецификации
+      контрактов. Официальной датировки рецессий в России нет: на графиках отмечены периоды спада ВВП (приблизительно).</p>
+    <p>SEMKIN macro · аналитический и образовательный инструмент. Не является инвестиционной рекомендацией.</p>
+  </footer>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
