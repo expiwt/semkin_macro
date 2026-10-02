@@ -1192,6 +1192,8 @@ function baseLayout(tab, { unit = '', zeroLine = false, shapes = [], annotations
     xaxis: {
       type: 'date', range: state.range, gridcolor: grid, linecolor: grid,
       hoverformat: '%d.%m.%Y', tickfont: { color: muted },
+      showspikes: true, spikemode: 'across', spikesnap: 'cursor', spikedash: 'solid',
+      spikethickness: 1, spikecolor: withAlpha('--text', 0.3),
     },
     yaxis: {
       type: log ? 'log' : 'linear', gridcolor: grid, ticksuffix: unit, fixedrange: true,
@@ -1700,7 +1702,10 @@ function buildPanels(tab) {
     <section class="panel">
       <h2>${escapeHtml(c.title)}</h2>
       <p class="note">${escapeHtml(c.intro)}</p>
-      <div class="chart" id="${c.id}"></div>
+      <div class="chart-wrap">
+        <div class="chart" id="${c.id}"></div>
+        <div class="cursor-box" id="${c.id}-cursor" hidden></div>
+      </div>
       <div class="explain" id="${c.id}-explain"></div>
       <p class="source" id="${c.id}-source"></p>
     </section>`).join('');
@@ -1833,6 +1838,9 @@ function renderCharts(tab) {
     if (TOUCH.matches) {
       layout.dragmode = false;
       layout.xaxis.fixedrange = true;
+      layout.hovermode = false;  // значения показывает своя подсказка (showCursor) — её можно закрыть касанием
+      data.push(cursorTrace('y'));
+      if (overlay && !def.noOverlay) data.push(cursorTrace('y2'));
     }
     if (NARROW.matches) {
       // Пары «лонг/шорт» — одна строка легенды на группу (касание скрывает обе линии).
@@ -1865,6 +1873,7 @@ function renderCharts(tab) {
       const [axis, prop] = path.split('.');
       if (layout[axis]) layout[axis][prop] = v;
     }
+    hideCursorBox(el);
     Plotly.react(el, data, layout, { ...PLOT_CONFIG, displayModeBar: !NARROW.matches && !TOUCH.matches });
     if (!el.dataset.bound) bindChartEvents(el, def);
 
@@ -1876,6 +1885,130 @@ function renderCharts(tab) {
       `<div><span class="swatch" style="background: var(${color})"></span><b>${escapeHtml(name)}.</b> ${escapeHtml(text)}</div>`,
     ).join('');
   }
+}
+
+// ---------------------------------------------------------------------------
+// Подсказка со значениями для сенсорных экранов
+// ---------------------------------------------------------------------------
+
+/** Невидимая трасса для кружков на линиях в точке касания (своя для каждой оси Y). */
+function cursorTrace(axis) {
+  return {
+    type: 'scatter', mode: 'markers', x: [], y: [], yaxis: axis, meta: axis === 'y' ? 'cursor' : 'cursor2',
+    showlegend: false, hoverinfo: 'skip', cliponaxis: false,
+    marker: { size: 10, color: [], line: { width: 2, color: css('--surface') } },
+  };
+}
+
+/** Число по формату из hovertemplate: '.2f', '+.0f', ',.1f', '+,.1f' и т.п. */
+function fmtByTemplate(v, f = '') {
+  const m = f.match(/^(\+)?,?(?:\.(\d+))?/);
+  return fmtNum(v, m && m[2] ? Number(m[2]) : 2, !!(m && m[1]));
+}
+
+/** Подставляет значения в hovertemplate трассы (%{y:…}, %{customdata:…}). */
+function fillTemplate(tpl, y, cd) {
+  return tpl.replace(/%\{(y|customdata)(?::([^}]*))?\}/g, (m, key, f) => fmtByTemplate(key === 'y' ? y : cd, f));
+}
+
+/** Ближайшая к дате точка трассы — если она не дальше полутора типичных шагов ряда. */
+function nearestPoint(tr, ms) {
+  const xs = tr.x;
+  let lo = 0, hi = xs.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (toDate(String(xs[mid]).slice(0, 10)) < ms) lo = mid + 1; else hi = mid;
+  }
+  let best = -1, bestDist = Infinity;
+  for (const i of [lo - 1, lo, lo + 1]) {
+    if (i < 0 || i >= xs.length || xs[i] == null || tr.y[i] == null) continue;
+    const dist = Math.abs(toDate(String(xs[i]).slice(0, 10)) - ms);
+    if (dist < bestDist) { best = i; bestDist = dist; }
+  }
+  if (best < 0) return -1;
+  const step = (toDate(String(xs[xs.length - 1]).slice(0, 10)) - toDate(String(xs[0]).slice(0, 10))) / Math.max(1, xs.length - 1);
+  return bestDist <= Math.max(3 * DAY_MS, 1.5 * step) ? best : -1;
+}
+
+function hideCursorBox(el) {
+  const box = document.getElementById(`${el.id}-cursor`);
+  if (box) box.hidden = true;
+}
+
+/** Убирает подсказку касания: линию, кружки и блок со значениями. */
+function hideCursor(el) {
+  hideCursorBox(el);
+  if (!el.data || !el.layout) return;
+  const idx = el.data.map((t, i) => (t.meta === 'cursor' || t.meta === 'cursor2' ? i : -1)).filter((i) => i >= 0);
+  const hasLine = (el.layout.shapes || []).some((sh) => sh.name === 'cursor');
+  if (!idx.length && !hasLine) return;
+  state.syncing = true;
+  Promise.all([
+    idx.length ? Plotly.restyle(el, { x: [[]], y: [[]] }, idx) : null,
+    hasLine ? Plotly.relayout(el, { shapes: el.layout.shapes.filter((sh) => sh.name !== 'cursor') }) : null,
+  ]).finally(() => { state.syncing = false; });
+}
+
+/**
+ * Касание графика: полупрозрачная вертикальная линия, кружки цвета линий на каждом ряду
+ * и блок со значениями сбоку от линии (никогда не поверх неё). Касание блока — скрыть всё.
+ */
+function showCursor(el, clientX) {
+  const xa = el._fullLayout.xaxis;
+  const wrapRect = el.getBoundingClientRect();
+  const px = clientX - wrapRect.left - xa._offset;
+  if (px < 0 || px > xa._length) return;
+  const ms = xa.p2l(px);
+
+  const rows = [], points = { y: { x: [], y: [], c: [] }, y2: { x: [], y: [], c: [] } };
+  let date = null;
+  for (const tr of el.data) {
+    if (tr.visible === 'legendonly' || tr.visible === false) continue;
+    if (!tr.hovertemplate || !tr.x || !tr.x.length) continue;          // заливки, служебные ряды
+    if (tr.meta && tr.meta !== 'overlay') continue;
+    const i = nearestPoint(tr, ms);
+    if (i < 0) continue;
+    const color = (tr.line && tr.line.color) || (tr.marker && tr.marker.color) || css('--text');
+    const axis = tr.yaxis === 'y2' ? 'y2' : 'y';
+    points[axis].x.push(tr.x[i]);
+    points[axis].y.push(tr.y[i]);
+    points[axis].c.push(color);
+    date = date || String(tr.x[i]).slice(0, 10);
+    const cd = Array.isArray(tr.customdata) ? tr.customdata[i] : undefined;
+    rows.push(`<div class="row"><span class="swatch" style="background:${color}"></span>
+      <span class="name">${escapeHtml(tr.name)}</span><b>${escapeHtml(fillTemplate(tr.hovertemplate, tr.y[i], cd))}</b></div>`);
+  }
+  if (!rows.length) { hideCursor(el); return; }
+
+  // Линия — на дате найденных значений, чтобы проходила точно через кружки
+  const lineX = date;
+  const shapes = (el.layout.shapes || []).filter((sh) => sh.name !== 'cursor');
+  shapes.push({
+    type: 'line', name: 'cursor', xref: 'x', yref: 'paper', x0: lineX, x1: lineX, y0: 0, y1: 1,
+    line: { color: withAlpha('--text', 0.35), width: 1 },
+  });
+  const upd = { x: [], y: [], 'marker.color': [] }, idx = [];
+  el.data.forEach((t, i) => {
+    if (t.meta !== 'cursor' && t.meta !== 'cursor2') return;
+    const p = points[t.meta === 'cursor' ? 'y' : 'y2'];
+    upd.x.push(p.x); upd.y.push(p.y); upd['marker.color'].push(p.c); idx.push(i);
+  });
+  state.syncing = true;
+  Promise.all([Plotly.relayout(el, { shapes }), idx.length ? Plotly.restyle(el, upd, idx) : null])
+    .finally(() => { state.syncing = false; });
+
+  // Блок со значениями — с той стороны от линии, где больше места
+  const box = document.getElementById(`${el.id}-cursor`);
+  box.innerHTML = `<div class="date">${fmtDate(date)}</div>${rows.join('')}<div class="close">коснитесь, чтобы скрыть</div>`;
+  box.hidden = false;
+  const lineLeft = xa._offset + xa.l2p(toDate(date).getTime());  // от левого края графика, px
+  const gap = 10;
+  const onRight = lineLeft < wrapRect.width / 2;
+  box.style.maxWidth = `${Math.max(120, (onRight ? wrapRect.width - lineLeft : lineLeft) - gap - 4)}px`;
+  box.style.top = `${el._fullLayout._size.t + 4}px`;
+  box.style.left = onRight ? `${lineLeft + gap}px` : '';
+  box.style.right = onRight ? '' : `${wrapRect.width - lineLeft + gap}px`;
+  box.onclick = () => hideCursor(el);
 }
 
 /**
@@ -1922,6 +2055,7 @@ function bindTouchGestures(el) {
       if (Math.abs(dy) > Math.abs(dx)) { g = null; return; }        // вертикаль — прокрутка страницы
       g.kind = 'pan';
     }
+    if (!g.cursorHidden) { hideCursor(el); g.cursorHidden = true; }  // при сдвиге/масштабе подсказка не нужна
     if (g.kind === 'pan' && e.touches.length === 1) {
       const shift = (-(e.touches[0].clientX - g.x) / len) * span;
       g.cur = [g.a + shift, g.b + shift];
@@ -1943,6 +2077,7 @@ function bindTouchGestures(el) {
 
   const finish = () => {
     if (g && g.cur) setRange(toIso(new Date(g.cur[0])), toIso(new Date(g.cur[1])));
+    else if (g && g.kind === 'pending') showCursor(el, g.x);  // касание без движения — значения на дату
     g = null;
   };
   el.addEventListener('touchend', (e) => { if (!e.touches.length) finish(); });
