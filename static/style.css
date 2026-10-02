@@ -179,6 +179,8 @@ label { font-size: 14px; color: var(--muted); display: inline-flex; gap: 6px; al
 }
 .explain div { font-size: 13px; color: var(--muted); }
 .explain b { color: var(--text); font-weight: 600; }
+.source { margin: 8px 0 0; font-size: 12px; color: var(--muted); font-style: italic; }
+.tip-src { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); font-style: italic; }
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: 0; }
 
 .foot { color: var(--muted); font-size: 12px; margin-top: 24px; }

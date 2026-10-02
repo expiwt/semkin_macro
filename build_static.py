@@ -58,6 +58,8 @@ def main():
     # Фоновую докачку выполняем синхронно и до конца — в сборке нет «потом».
     for backfill in (server.CBOE_DAILY, server.ZCYC_DAILY):
         t = time.time()
+        backfill.verbose = True
+        print(f"{backfill.name}: докачка истории…", flush=True)
         backfill._run()
         backfill.started_at = time.time()  # не запускать её повторно внутри get_all()
         print(f"{backfill.name}: докачано {backfill.progress['done']} дн. за {time.time() - t:.0f} с")

@@ -24,6 +24,7 @@ SEMKIN macro — локальный сервер дашборда ранних �
   Мосбиржа (ISS) — индексы IMOEX, RTS, RGBI, корпоративных облигаций; кривая ОФЗ (с 2014);
             открытые позиции физлиц и юрлиц по фьючерсам (с 2020, задержка 14 дней).
   Банк России — ключевая ставка и курс доллара.
+  Минфин — исполнение федерального бюджета (с 2011) и ФНБ (с 2008); SIPRI — военные расходы.
 
 Только стандартная библиотека Python 3.8+, никаких зависимостей.
 
@@ -294,6 +295,7 @@ class DailyBackfill:
         self.lock = threading.Lock()
         self.daily = None               # {"YYYY-MM-DD": {...} | None}
         self.thread = None
+        self.verbose = False            # печатать прогресс (для сборки в GitHub Actions)
         self.started_at = 0.0
         self.progress = {"done": 0, "total": 0}
 
@@ -327,6 +329,8 @@ class DailyBackfill:
                 self.progress["done"] += 1
                 if self.progress["done"] % 100 == 0:
                     write_json(self.path, daily)
+                    if self.verbose:
+                        print(f"  {self.name}: {self.progress['done']}/{self.progress['total']} дн.", flush=True)
 
         with ThreadPoolExecutor(max_workers=self.workers) as pool:
             list(pool.map(work, todo))
@@ -621,6 +625,192 @@ def fetch_cbr(_api_key):
             make_series("CBR_USDRUB", "Официальный курс доллара, ₽", "Банк России", usd)]
 
 
+# --- Бюджет России: Минфин и SIPRI ---------------------------------------------
+
+XLSX_NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+           "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships"}
+
+
+def _col_index(ref):
+    """'AB12' → 27 (номер колонки с нуля)."""
+    n = 0
+    for ch in re.match(r"[A-Z]+", ref).group(0):
+        n = n * 26 + ord(ch) - 64
+    return n - 1
+
+
+def read_xlsx(blob, sheet=None):
+    """
+    Минимальный разбор xlsx без сторонних библиотек: строки листа как списки значений
+    (число → float, текст → str, пусто → None). sheet — имя листа; по умолчанию первый.
+    Даты в Excel хранятся числами (дни от 1899-12-30) — их переводит excel_date().
+    """
+    m = XLSX_NS["m"]
+    with zipfile.ZipFile(io.BytesIO(blob)) as z:
+        shared = []
+        if "xl/sharedStrings.xml" in z.namelist():
+            sst = ElementTree.fromstring(z.read("xl/sharedStrings.xml"))
+            shared = ["".join(t.text or "" for t in si.iter(f"{{{m}}}t")) for si in sst]
+        wb = ElementTree.fromstring(z.read("xl/workbook.xml"))
+        rels = ElementTree.fromstring(z.read("xl/_rels/workbook.xml.rels"))
+        targets = {r.get("Id"): r.get("Target") for r in rels}
+        sheets = [(s.get("name"), targets[s.get(f"{{{XLSX_NS['r']}}}id")]) for s in wb.iter(f"{{{m}}}sheet")]
+        name, target = next(((n, t) for n, t in sheets if n == sheet), sheets[0]) if sheet else sheets[0]
+        path = target.lstrip("/") if target.startswith("/") else "xl/" + target
+        root = ElementTree.fromstring(z.read(path))
+    rows = []
+    for row in root.iter(f"{{{m}}}row"):
+        vals = {}
+        for c in row.findall(f"{{{m}}}c"):
+            t, v = c.get("t"), c.find(f"{{{m}}}v")
+            if t == "inlineStr":
+                val = "".join(x.text or "" for x in c.iter(f"{{{m}}}t"))
+            elif v is None or v.text is None:
+                continue
+            elif t == "s":
+                val = shared[int(v.text)]
+            elif t in ("str", "e", "b"):
+                val = v.text
+            else:
+                try:
+                    val = float(v.text)
+                except ValueError:
+                    val = v.text
+            vals[_col_index(c.get("r"))] = val
+        rows.append([vals.get(i) for i in range(max(vals) + 1)] if vals else [])
+    return rows
+
+
+def excel_date(serial):
+    return (dt.date(1899, 12, 30) + dt.timedelta(days=int(serial))).isoformat()
+
+
+RU_MONTHS = {"янв": 1, "фев": 2, "мар": 3, "апр": 4, "май": 5, "мая": 5, "июн": 6,
+             "июл": 7, "авг": 8, "сен": 9, "окт": 10, "ноя": 11, "дек": 12}
+
+
+def month_header(value):
+    """Заголовок колонки Минфина → 'YYYY-MM-01'. Бывает датой Excel, 'фев.26 ***' или 'Январь 2008¹'."""
+    if isinstance(value, float) and value > 20000:
+        return excel_date(value)[:8] + "01"
+    if isinstance(value, str):
+        mt = re.match(r"\s*([А-Яа-яЁё]+)\.?\s*(\d{2,4})", value)
+        if mt and mt.group(1)[:3].lower() in RU_MONTHS:
+            year = int(mt.group(2))
+            year += 2000 if year < 100 else 0
+            return f"{year:04d}-{RU_MONTHS[mt.group(1)[:3].lower()]:02d}-01"
+    return None
+
+
+def minfin_link(page, pattern):
+    """Ссылка на свежий файл на странице Минфина (имя файла меняется каждый месяц)."""
+    html = http_get(f"https://minfin.gov.ru{page}", headers={"User-Agent": "Mozilla/5.0"})
+    found = re.findall(r'href="([^"]*' + pattern + r'[^"]*\.xlsx)"', html)
+    if not found:
+        raise ValueError(f"На странице {page} не найден файл {pattern}")
+    return "https://minfin.gov.ru" + urllib.parse.quote(found[0])
+
+
+def minfin_table(rows, wanted):
+    """
+    Таблица Минфина «показатели по строкам × месяцы по колонкам».
+    wanted: {ID ряда: начало названия строки}. Возвращает {ID: [(дата, значение)]}.
+    """
+    hdr = next(r for r in rows if r and any(month_header(v) for v in r[2:]))
+    dates = {i: month_header(v) for i, v in enumerate(hdr) if i >= 2 and month_header(v)}
+    out = {sid: [] for sid in wanted}
+    for r in rows:
+        label = str(r[1]).strip() if len(r) > 1 and r[1] else ""
+        for sid, prefix in wanted.items():
+            if label.startswith(prefix) and not out[sid]:
+                out[sid] = [(d, r[i]) for i, d in dates.items() if i < len(r) and isinstance(r[i], float)]
+    return out
+
+
+BUDGET_ROWS = {
+    "BUD_REV": "Доходы, всего",
+    "BUD_OILGAS": "Нефтегазовые доходы",
+    "BUD_NONOIL": "Ненефтегазовые доходы",
+    "BUD_EXP": "Расходы, всего",
+    "BUD_DEFENSE": "Национальная оборона",
+    "BUD_SECURITY": "Национальная безопасность",
+    "BUD_SOCIAL": "Социальная политика",
+    "BUD_DEBTSERV": "Обслуживание государственного",
+    "BUD_BALANCE": "Дефицит (-)/Профицит (+)",
+    "BUD_NONOIL_BALANCE": "Ненефтегазовый дефицит",
+}
+
+
+def fetch_minfin_budget(_api_key):
+    """
+    Краткая ежемесячная информация об исполнении федерального бюджета (Минфин), млрд ₽,
+    нарастающим итогом с начала года, с 2011 г. Расходы по разделам (оборона и др.)
+    Минфин публикует только до 2021 г. — дальше эти строки пустые.
+    """
+    url = minfin_link("/ru/statistics/fedbud/execute/", "_mes")
+    table = minfin_table(read_xlsx(http_get(url, raw=True, headers={"User-Agent": "Mozilla/5.0"})), BUDGET_ROWS)
+    note = "Минфин, помесячно нарастающим итогом с начала года; последние месяцы — оценка"
+    return [make_series(sid, BUDGET_ROWS[sid] + ", млрд ₽ (с начала года)", "Минфин", pts, note)
+            for sid, pts in table.items()]
+
+
+NWF_ROWS = {
+    "NWF_TOTAL": "Объем на конец периода",
+    "NWF_GDP": "в т.ч. в процентах к ВВП",
+    "NWF_USD": "Объем средств фонда на конец периода (млрд. долларов",
+    "NWF_IN": "Поступления",
+    "NWF_OUT": "Изъятия",
+    "NWF_OTHER": "Размещено в иные разрешенные активы",
+}
+
+
+def fetch_minfin_nwf(_api_key):
+    """
+    Фонд национального благосостояния (Минфин), помесячно с 2008 г., млрд ₽.
+    «Иные разрешённые активы» — вложения в акции, облигации и проекты; ликвидная часть
+    считается в браузере как объём минус иные активы.
+    """
+    url = minfin_link("/ru/perfomance/nationalwealthfund/statistics/", "Dannye_")
+    table = minfin_table(read_xlsx(http_get(url, raw=True, headers={"User-Agent": "Mozilla/5.0"})), NWF_ROWS)
+    table["NWF_GDP"] = [(d, v * 100) for d, v in table["NWF_GDP"]]  # доля → проценты
+    note = "Минфин, данные на начало следующего месяца"
+    return [make_series(sid, f"ФНБ: {NWF_ROWS[sid]}", "Минфин", pts, note) for sid, pts in table.items()]
+
+
+def fetch_sipri(_api_key):
+    """
+    SIPRI Military Expenditure Database: военные расходы России по годам — в рублях,
+    в % ВВП и в % всех госрасходов. Оценка SIPRI шире раздела «Национальная оборона»
+    (включает, например, военные пенсии и часть расходов силовых ведомств).
+    """
+    year = dt.date.today().year
+    blob = None
+    for y in (year, year - 1, year - 2):  # файл называется по последнему году данных
+        try:
+            blob = http_get(f"https://www.sipri.org/sites/default/files/SIPRI-Milex-data-1949-{y - 1}.xlsx", raw=True)
+            break
+        except urllib.error.HTTPError:
+            continue
+    if blob is None:
+        raise ValueError("Файл SIPRI не найден")
+
+    def russia(sheet, scale):
+        rows = read_xlsx(blob, sheet)
+        hdr = next(r for r in rows if r and r[0] == "Country")
+        ru = next(r for r in rows if r and isinstance(r[0], str) and r[0].strip() == "Russia")
+        return [(f"{int(h)}-07-01", v * scale) for h, v in zip(hdr, ru)
+                if isinstance(h, float) and isinstance(v, float) and h >= 1993]
+
+    note = "SIPRI, оценка по календарным годам"
+    return [
+        make_series("SIPRI_RU_RUB", "Военные расходы России (SIPRI), млрд ₽", "SIPRI",
+                    russia("Local currency calendar years", 1e-9), note),
+        make_series("SIPRI_RU_GDP", "Военные расходы России, % ВВП (SIPRI)", "SIPRI", russia("Share of GDP", 100), note),
+        make_series("SIPRI_RU_GOV", "Военные расходы России, % госрасходов (SIPRI)", "SIPRI",
+                    russia("Share of Govt. spending", 100), note),
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Кэш источников
 # ---------------------------------------------------------------------------
@@ -639,6 +829,9 @@ SOURCES.update({
     "moex_indices": (fetch_moex_indices, 6 * HOUR, True),
     "moex_futoi": (fetch_futoi, 12 * HOUR, True),
     "cbr": (fetch_cbr, 6 * HOUR, False),
+    "minfin_budget": (fetch_minfin_budget, 24 * HOUR, False),
+    "minfin_nwf": (fetch_minfin_nwf, 24 * HOUR, False),
+    "sipri": (fetch_sipri, 30 * 24 * HOUR, False),
 })
 
 

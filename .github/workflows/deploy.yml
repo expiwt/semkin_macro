@@ -41,6 +41,7 @@ jobs:
       - name: Скачать данные и собрать сайт
         run: python build_static.py
         env:
+          PYTHONUNBUFFERED: "1"   # печатать лог сразу, а не в конце
           DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
 

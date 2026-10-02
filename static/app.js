@@ -88,7 +88,53 @@ const EXPLAIN = {
   futYur: 'Юрлица — банки, фонды, брокеры, компании. Их нетто-позиция всегда зеркальна нетто-позиции физлиц: на каждый лонг есть шорт.',
   futMoney: 'Позиции переведены в рубли: контракты × стоимость контракта по текущей спецификации Мосбиржи × значение индекса на дату. Сплошная линия — лонги, пунктир — шорты. Бесплатные данные — с задержкой 14 дней.',
   accounts: 'Сколько счетов физлиц держат лонг и сколько — шорт. Показывает, насколько массово розница ставит на рост или падение, независимо от объёма денег.',
+  budRev: 'Все доходы федерального бюджета за последние 12 месяцев. Сумма за 12 месяцев убирает сезонность: налоги и расходы распределены по году очень неравномерно.',
+  budOil: 'Нефтегазовые доходы — налоги и пошлины на добычу и экспорт нефти и газа. Зависят от цен на нефть, курса рубля и объёмов экспорта; их падение — главный риск для бюджета.',
+  budNonoil: 'Все остальные доходы: НДС, налог на прибыль, акцизы, ввозные пошлины. Растут вместе с экономикой и инфляцией.',
+  budExp: 'Все расходы федерального бюджета за последние 12 месяцев.',
+  budBal: 'Разница доходов и расходов за 12 месяцев. Ниже нуля — дефицит: государству приходится занимать (выпускать ОФЗ) или тратить ФНБ. Устойчиво большой дефицит давит на ставки и рубль.',
+  budNonoilBal: 'Дефицит без нефтегазовых доходов — показывает, насколько бюджет зависит от нефти и газа. Чем он глубже, тем уязвимее бюджет к падению цен на нефть.',
+  budYtd: 'Дефицит с начала текущего года нарастающим итогом — так его публикует Минфин. Внутри года он сильно колеблется: в декабре традиционно проходит много расходов.',
+  budGdp: 'Доля в ВВП — оценка: ВВП взят из отчёта Минфина о ФНБ, где объём фонда приводится и в рублях, и в процентах к ВВП.',
+  nwf: 'Фонд национального благосостояния — «подушка» бюджета, куда раньше откладывали сверхдоходы от нефти. Из него покрывают дефицит, когда нефтегазовых доходов не хватает.',
+  nwfLiquid: 'Ликвидная часть — деньги на счетах в Банке России (юани, золото, рубли), которые можно быстро потратить. Остальное вложено в акции, облигации и проекты и быстро не продаётся. Расчёт: объём фонда минус «иные активы».',
+  nwfCover: 'Во сколько раз ликвидная часть ФНБ больше годового дефицита — грубая оценка запаса прочности. На практике дефицит покрывают в основном займами (ОФЗ), а не только ФНБ.',
+  defenseMinfin: 'Расходы федерального бюджета по разделу «Национальная оборона» по данным Минфина. С 2022 года Минфин перестал публиковать разбивку расходов по разделам.',
+  defenseSipri: 'Оценка военных расходов России от SIPRI (Стокгольмский институт исследования проблем мира). Шире раздела «Национальная оборона»: включает, например, военные пенсии и часть расходов силовых ведомств.',
+  sipriShare: 'Военные расходы в процентах от ВВП и от всех государственных расходов по оценке SIPRI — какая доля экономики и бюджета уходит на оборону.',
   ruCrises: 'Периоды спада ВВП России (приблизительно, по годовой динамике ВВП): 1998, 2008–09, 2015–16, 2020, 2022–23. Официальной датировки рецессий, как NBER в США, в России нет.',
+};
+
+// ---------------------------------------------------------------------------
+// Источники данных (показываются под графиками и в подсказках карточек)
+// ---------------------------------------------------------------------------
+
+const SRC = {
+  yields: 'FRED (ФРС Сент-Луиса): DGS3MO, DGS2, DGS5, DGS10, DGS30',
+  curve: 'расчёт по данным FRED: DGS10 − DGS2, DGS10 − DGS3MO',
+  hy: 'FRED: BAMLH0A0HYM2 (ICE BofA US High Yield Index OAS, ICE Data Indices)',
+  hyRoc: 'расчёт по данным FRED: BAMLH0A0HYM2, BAA10Y',
+  baa: "FRED: BAA10Y (Moody's Seasoned Baa Corporate Bond Yield − 10Y Treasury)",
+  gz: 'ФРС США: Gilchrist & Zakrajšek, «Updating the Recession Risk and the Excess Bond Premium», FEDS Notes',
+  margin: 'FINRA: Margin Statistics; FRED: M2SL',
+  cap: 'ФРС США, отчёт Z.1 (FRED: BOGZ1LM883164105Q); FINRA: Margin Statistics',
+  indices: 'FRED: SP500, NASDAQCOM; S&P 500 до 2016 г. — данные Р. Шиллера (datahub.io)',
+  tff: 'CFTC: Traders in Financial Futures (publicreporting.cftc.gov); FRED: SP500, NASDAQ100',
+  cot: 'CFTC: Commitments of Traders, legacy (publicreporting.cftc.gov)',
+  putcall: 'CBOE: архив и дневная статистика put/call ratio (cboe.com)',
+  short: 'FINRA: Consolidated Short Interest (api.finra.org)',
+  nber: 'NBER (FRED: USREC)',
+  keyRate: 'Банк России: ключевая ставка (cbr.ru)',
+  ofz: 'Мосбиржа: кривая бескупонной доходности ОФЗ (iss.moex.com)',
+  ruCurve: 'расчёт по данным Мосбиржи (кривая ОФЗ) и Банка России (ключевая ставка)',
+  ruBonds: 'Мосбиржа: индексы RGBI, RUCBITR, RUCBTRNS (iss.moex.com)',
+  ruIndices: 'Мосбиржа: индексы IMOEX, RTSI, RGBI (iss.moex.com)',
+  futoi: 'Мосбиржа: «Открытые позиции» FUTOI (iss.moex.com); курс доллара — Банк России',
+  budget: 'Минфин России: краткая ежемесячная информация об исполнении федерального бюджета (minfin.gov.ru)',
+  nwf: 'Минфин России: статистика Фонда национального благосостояния (minfin.gov.ru)',
+  defense: 'Минфин России (раздел «Национальная оборона», до 2021 г.); SIPRI Military Expenditure Database (sipri.org)',
+  sipri: 'SIPRI Military Expenditure Database (sipri.org)',
+  ruCrises: 'периоды спада ВВП России — приблизительно, по данным Росстата',
 };
 
 // ---------------------------------------------------------------------------
@@ -185,6 +231,14 @@ const DRAWDOWN_ZONES = [
   { max: -20, label: 'Медвежий рынок', color: '--stress' },
   { max: -10, label: 'Коррекция', color: '--caution' },
   { max: Infinity, label: 'Около максимумов', color: '--calm' },
+];
+
+// Дефицит федерального бюджета за 12 месяцев, % ВВП. Пороги условные.
+const DEFICIT_ZONES = [
+  { max: -3, label: 'Дефицит больше 3% ВВП', color: '--panic' },
+  { max: -1, label: 'Дефицит 1–3% ВВП', color: '--stress' },
+  { max: 0, label: 'Дефицит до 1% ВВП', color: '--caution' },
+  { max: Infinity, label: 'Профицит', color: '--calm' },
 ];
 
 const UNINVERSION_WINDOW_DAYS = 730;  // сколько дней после выхода из инверсии считаем «дезинверсией»
@@ -447,6 +501,53 @@ function inversionStatus(flag) {
     : { kind: 'none', lastInverted: flag.dates[j] };
 }
 
+/** Нарастающий итог с начала года (как публикует Минфин) → значения за каждый месяц. */
+function ytdToMonthly(s) {
+  const byMonth = new Map(s.dates.map((d, i) => [monthKey(d), s.values[i]]));
+  const dates = [], values = [];
+  s.dates.forEach((d, i) => {
+    const prev = d.slice(5, 7) === '01' ? 0 : byMonth.get(monthKey(addMonths(d, -1)));
+    if (prev !== undefined) {
+      dates.push(d);
+      values.push(s.values[i] - prev);
+    }
+  });
+  return { dates, values };
+}
+
+/** Сумма за последние 12 месяцев (только если есть все 12 месяцев). */
+function rolling12(m) {
+  const byMonth = new Map(m.dates.map((d, i) => [monthKey(d), m.values[i]]));
+  const dates = [], values = [];
+  for (const d of m.dates) {
+    let sum = 0, ok = true;
+    for (let k = 0; k < 12 && ok; k++) {
+      const v = byMonth.get(monthKey(addMonths(d, -k)));
+      if (v === undefined) ok = false; else sum += v;
+    }
+    if (ok) {
+      dates.push(d);
+      values.push(sum);
+    }
+  }
+  return { dates, values };
+}
+
+/** Показатель бюджета за 12 месяцев, трлн ₽, из нарастающего итога Минфина (млрд ₽). */
+const budget12 = (id) => mapValues(rolling12(ytdToMonthly(series(id))), (v) => v / 1000);
+
+/** Годовые итоги из нарастающего итога: декабрьское значение → середина года (для столбцов). */
+function yearTotals(s) {
+  const dates = [], values = [];
+  s.dates.forEach((d, i) => {
+    if (d.slice(5, 7) === '12') {
+      dates.push(`${d.slice(0, 4)}-07-01`);
+      values.push(s.values[i]);
+    }
+  });
+  return { dates, values };
+}
+
 /** Чистая позиция группы COT в % от открытого интереса. */
 function cotNet(prefix) {
   const net = combine(series(`COT_${prefix}_LONG`), series(`COT_${prefix}_SHORT`), (l, s) => l - s);
@@ -546,6 +647,15 @@ function computeIndicators() {
   const rgbi = series('MOEX_RGBI');
   const rtsRub = asof(rts, usdrub, (px, fx) => px * fx);  // РТС в рублях: пункт × курс доллара
 
+  // Бюджет (Минфин): суммы за 12 месяцев, трлн ₽.
+  const budBal12 = budget12('BUD_BALANCE');
+  const budRev12 = budget12('BUD_REV');
+  const budOil12 = budget12('BUD_OILGAS');
+  // ВВП (млрд ₽) — из отчёта о ФНБ: объём фонда в рублях и в % ВВП.
+  const gdp = combine(series('NWF_TOTAL'), series('NWF_GDP'), (v, pct) => v / (pct / 100));
+  const nwfTotal = mapValues(series('NWF_TOTAL'), (v) => v / 1000);
+  const nwfLiquid = combine(series('NWF_TOTAL'), series('NWF_OTHER'), (t, o) => (t - o) / 1000);
+
   const usDaily = [...Object.values(y), hy, baa];
   state.ind = {
     window, yields: y, curve2y, curve3m, flag,
@@ -574,6 +684,18 @@ function computeIndicators() {
     accImoexL: futoiAccounts(Object.keys(FUT_IMOEX), 'NL'),
     accImoexS: futoiAccounts(Object.keys(FUT_IMOEX), 'NS'),
 
+    budRev12, budOil12, budBal12,
+    budNonoil12: budget12('BUD_NONOIL'),
+    budExp12: budget12('BUD_EXP'),
+    budNonoilBal12: budget12('BUD_NONOIL_BALANCE'),
+    budBalYtd: mapValues(series('BUD_BALANCE'), (v) => v / 1000),
+    budBal12Gdp: asof(budBal12, gdp, (b, g) => (b * 1000 / g) * 100),
+    budOilShare: combine(budOil12, budRev12, (o, r) => (o / r) * 100),
+    nwfTotal, nwfLiquid, nwfGdp: series('NWF_GDP'), nwfUsd: series('NWF_USD'),
+    defenseMinfin: mapValues(yearTotals(series('BUD_DEFENSE')), (v) => v / 1000),
+    defenseSipri: mapValues(series('SIPRI_RU_RUB'), (v) => v / 1000),
+    sipriGdp: series('SIPRI_RU_GDP'), sipriGov: series('SIPRI_RU_GOV'),
+
     lastDate: usDaily.map((s) => s.dates[s.dates.length - 1]).filter(Boolean).sort().pop(),
     firstDate: Object.values(y).map((s) => s.dates[0]).filter(Boolean).sort()[0],
   };
@@ -593,12 +715,13 @@ function minSince(s, days) {
 
 let tipCounter = 0;
 
-function card({ label, value, unit = '', zone, detail = '', extraHtml = '', explain }) {
+function card({ label, value, unit = '', zone, detail = '', extraHtml = '', explain, source }) {
   const zoneStyle = zone ? `style="--zone: var(${zone.color})"` : '';
   const tipId = `tip-${++tipCounter}`;
+  const src = source ? `<span class="tip-src">Источник: ${escapeHtml(source)}</span>` : '';
   const tip = explain
     ? `<button class="info" aria-label="Что это?" aria-describedby="${tipId}">?</button>
-       <div class="tip" role="tooltip" id="${tipId}">${escapeHtml(explain)}</div>`
+       <div class="tip" role="tooltip" id="${tipId}">${escapeHtml(explain)}${src}</div>`
     : '';
   return `<div class="card" ${zoneStyle}>
     <div class="label">${label}</div>${tip}
@@ -640,16 +763,16 @@ function extremesCard(opts, s, { high, low }, pctSeries = s) {
   });
 }
 
-function curveCard(label, s, explain) {
+function curveCard(label, s, explain, source) {
   const l = last(s);
   if (!l) return '';
   return card({
-    label, value: fmtNum(l.value, 0, true), unit: 'б.п.', zone: zoneOf(CURVE_ZONES, l.value), explain,
+    label, value: fmtNum(l.value, 0, true), unit: 'б.п.', zone: zoneOf(CURVE_ZONES, l.value), explain, source,
     detail: `на ${fmtDate(l.date)} · мин. за 2 года: ${fmtNum(minSince(s, 730), 0, true)} б.п.`,
   });
 }
 
-function inversionCard(inv, explain) {
+function inversionCard(inv, explain, source) {
   if (!inv) return '';
   // Функции, а не готовые объекты: поля inv различаются в зависимости от kind.
   const variants = {
@@ -666,14 +789,14 @@ function inversionCard(inv, explain) {
       detail: inv.lastInverted ? `последний день инверсии: ${fmtDate(inv.lastInverted)}` : '',
     }),
   };
-  return card({ label: 'Флаг инверсии', explain, ...variants[inv.kind]() });
+  return card({ label: 'Флаг инверсии', explain, source, ...variants[inv.kind]() });
 }
 
-function indexCard(label, s, dd, explain, digits = 0) {
+function indexCard(label, s, dd, explain, source, digits = 0) {
   const l = last(s), d = last(dd);
   if (!l) return '';
   return card({
-    label, value: fmtNum(l.value, digits), explain: `${explain} ${EXPLAIN.drawdown}`,
+    label, value: fmtNum(l.value, digits), explain: `${explain} ${EXPLAIN.drawdown}`, source,
     zone: zoneOf(DRAWDOWN_ZONES, d.value),
     detail: `на ${fmtDate(l.date)} · от максимума: ${fmtNum(d.value, 1)}%`,
   });
@@ -681,16 +804,16 @@ function indexCard(label, s, dd, explain, digits = 0) {
 
 function usCards(I) {
   const curve = [
-    curveCard('Спред 10Y − 2Y', I.curve2y, EXPLAIN.curve2y),
-    curveCard('Спред 10Y − 3M', I.curve3m, EXPLAIN.curve3m),
-    inversionCard(I.inversion, EXPLAIN.flag),
+    curveCard('Спред 10Y − 2Y', I.curve2y, EXPLAIN.curve2y, SRC.curve),
+    curveCard('Спред 10Y − 3M', I.curve3m, EXPLAIN.curve3m, SRC.curve),
+    inversionCard(I.inversion, EXPLAIN.flag, SRC.curve),
   ];
   const yl = YIELDS.map((s) => last(I.yields[s.id]));
   if (yl.some(Boolean)) {
     const head = YIELDS.map((s) => `<span>${s.name}</span>`).join('');
     const vals = yl.map((l) => `<span>${l ? fmtNum(l.value, 2) : '—'}</span>`).join('');
     curve.push(card({
-      label: 'Доходности трежерис, %', value: '', explain: EXPLAIN.yields,
+      label: 'Доходности трежерис, %', source: SRC.yields, value: '', explain: EXPLAIN.yields,
       extraHtml: `<div class="yields">${head}${vals}</div>`,
       detail: `на ${fmtDate(yl.map((l) => l?.date).filter(Boolean).sort().pop())}`,
     }));
@@ -700,20 +823,20 @@ function usCards(I) {
   const hy = last(I.hy), hyRoc = last(I.hyRoc), baa = last(I.baa), baaRoc = last(I.baaRoc);
   if (hy) {
     credit.push(card({
-      label: 'Спред мусорных облигаций (HY OAS)', value: fmtNum(hy.value), unit: 'б.п.',
+      label: 'Спред мусорных облигаций (HY OAS)', source: SRC.hy, value: fmtNum(hy.value), unit: 'б.п.',
       zone: zoneOf(HY_ZONES, hy.value), detail: `на ${fmtDate(hy.date)}`, explain: EXPLAIN.hy,
     }));
   }
   if (hyRoc) {
     credit.push(card({
-      label: `Изменение HY OAS за ${I.window} торг. дн.`, value: fmtNum(hyRoc.value, 0, true), unit: 'б.п.',
+      label: `Изменение HY OAS за ${I.window} торг. дн.`, source: SRC.hyRoc, value: fmtNum(hyRoc.value, 0, true), unit: 'б.п.',
       zone: zoneOf(HY_ROC_ZONES, hyRoc.value), explain: EXPLAIN.hyRoc,
       detail: 'пороги эвристические: +50 / +150 / +300 б.п. для окна ~60 дн.',
     }));
   }
   if (baa) {
     credit.push(card({
-      label: 'Спред Baa − 10Y (с 1986)', value: fmtNum(baa.value), unit: 'б.п.',
+      label: 'Спред Baa − 10Y (с 1986)', source: SRC.baa, value: fmtNum(baa.value), unit: 'б.п.',
       zone: zoneOf(BAA_ZONES, baa.value), explain: EXPLAIN.baa,
       detail: `на ${fmtDate(baa.date)} · за ${I.window} дн.: ${fmtNum(baaRoc?.value, 0, true)} б.п.`,
     }));
@@ -721,14 +844,14 @@ function usCards(I) {
   const gz = last(I.gz);
   if (gz) {
     credit.push(percentileCard({
-      label: 'GZ-спред ФРС (с 1973)', unit: 'б.п.', value: fmtNum(gz.value * 100), explain: EXPLAIN.gz,
+      label: 'GZ-спред ФРС (с 1973)', source: SRC.gz, unit: 'б.п.', value: fmtNum(gz.value * 100), explain: EXPLAIN.gz,
       detail: `на ${fmtMonth(gz.date)} · EBP: ${fmtNum(last(I.ebp)?.value * 100, 0, true)} б.п. · `,
     }, I.gz, SPREAD_PCT_ZONES));
   }
   const prob = last(I.gzProb);
   if (prob) {
     credit.push(card({
-      label: 'Вероятность рецессии за 12 мес. (модель ФРС)', value: fmtNum(prob.value, 0), unit: '%',
+      label: 'Вероятность рецессии за 12 мес. (модель ФРС)', source: SRC.gz, value: fmtNum(prob.value, 0), unit: '%',
       zone: zoneOf(PROB_ZONES, prob.value), explain: EXPLAIN.gzProb,
       detail: `на ${fmtMonth(prob.date)} · пороги условные: 20 / 40 / 60%`,
     }));
@@ -738,21 +861,21 @@ function usCards(I) {
   const mm = last(I.marginM2);
   if (mm) {
     leverage.push(percentileCard({
-      label: 'Маржинальный долг / M2', unit: '%', digits: 2, explain: EXPLAIN.marginM2,
+      label: 'Маржинальный долг / M2', source: SRC.margin, unit: '%', digits: 2, explain: EXPLAIN.marginM2,
       detail: `на ${fmtMonth(mm.date)} · `,
     }, I.marginM2, LEVERAGE_ZONES));
   }
   const cm = last(I.capMargin);
   if (cm) {
     leverage.push(percentileCard({
-      label: 'Капитализация / маржинальный долг', unit: '%', digits: 0, explain: EXPLAIN.capMargin,
+      label: 'Капитализация / маржинальный долг', source: SRC.cap, unit: '%', digits: 0, explain: EXPLAIN.capMargin,
       detail: `на ${fmtMonth(cm.date)} (квартал) · ниже = больше плеча · `,
     }, I.capMargin, LEVERAGE_ZONES, true));
   }
   const m = last(I.margin), yoy = last(I.marginYoY);
   if (m) {
     leverage.push(card({
-      label: 'Маржинальный долг', value: fmtNum(m.value), unit: 'млрд $', explain: EXPLAIN.margin,
+      label: 'Маржинальный долг', source: 'FINRA: Margin Statistics', value: fmtNum(m.value), unit: 'млрд $', explain: EXPLAIN.margin,
       zone: yoy && yoy.value > 30 ? { label: `Быстрый рост: ${fmtNum(yoy.value, 0, true)}% г/г`, color: '--caution' }
         : { label: `${fmtNum(yoy?.value, 0, true)}% за год`, color: '--border' },
       detail: `на ${fmtMonth(m.date)}, FINRA, задержка ~3–4 недели`,
@@ -760,22 +883,22 @@ function usCards(I) {
   }
 
   const market = [
-    indexCard('S&P 500', I.sp500, I.sp500Dd, EXPLAIN.sp500),
-    indexCard('NASDAQ Composite', I.nasdaq, I.nasdaqDd, EXPLAIN.nasdaq),
+    indexCard('S&P 500', I.sp500, I.sp500Dd, EXPLAIN.sp500, SRC.indices),
+    indexCard('NASDAQ Composite', I.nasdaq, I.nasdaqDd, EXPLAIN.nasdaq, SRC.indices),
     extremesCard({
-      label: 'Фьючерсы S&P 500: хедж-фонды, нетто', unit: 'млрд $', digits: 0, signed: true,
+      label: 'Фьючерсы S&P 500: хедж-фонды, нетто', source: SRC.tff, unit: 'млрд $', digits: 0, signed: true,
       explain: `${EXPLAIN.tffLev} ${EXPLAIN.tffMoney}`,
     }, I.tffSpx.LEV.net, { high: 'Мало шортов у хедж-фондов', low: 'Много шортов у хедж-фондов' }, I.tffSpx.LEV.netContracts),
     extremesCard({
-      label: 'Фьючерсы S&P 500: управляющие, нетто', unit: 'млрд $', digits: 0, signed: true,
+      label: 'Фьючерсы S&P 500: управляющие, нетто', source: SRC.tff, unit: 'млрд $', digits: 0, signed: true,
       explain: `${EXPLAIN.tffAsset} ${EXPLAIN.tffMoney}`,
     }, I.tffSpx.ASSET.net, { high: 'Очень большие лонги', low: 'Лонги сокращены' }, I.tffSpx.ASSET.netContracts),
     extremesCard({
-      label: 'Фьючерсы NASDAQ-100: хедж-фонды, нетто', unit: 'млрд $', digits: 1, signed: true,
+      label: 'Фьючерсы NASDAQ-100: хедж-фонды, нетто', source: SRC.tff, unit: 'млрд $', digits: 1, signed: true,
       explain: `${EXPLAIN.tffLev} ${EXPLAIN.tffMoney}`,
     }, I.tffNdx.LEV.net, { high: 'Мало шортов у хедж-фондов', low: 'Много шортов у хедж-фондов' }, I.tffNdx.LEV.netContracts),
     extremesCard({
-      label: 'COT: мелкие трейдеры, чистая позиция', unit: '% ОИ', signed: true, explain: EXPLAIN.cotSmall,
+      label: 'COT: мелкие трейдеры, чистая позиция', source: SRC.cot, unit: '% ОИ', signed: true, explain: EXPLAIN.cotSmall,
       detail: 'E-mini S&P 500, ',
     }, I.cotSmall, { high: 'Сильный оптимизм мелких', low: 'Сильный пессимизм мелких' }),
   ];
@@ -784,7 +907,7 @@ function usCards(I) {
   if (pc) {
     const p = percentile(I.pcEquityMa.values, pc.value);
     market.push(card({
-      label: `Put/call по акциям, среднее ${PC_SMOOTH} дн.`, value: fmtNum(pc.value, 2), explain: EXPLAIN.pcEquity,
+      label: `Put/call по акциям, среднее ${PC_SMOOTH} дн.`, source: SRC.putcall, value: fmtNum(pc.value, 2), explain: EXPLAIN.pcEquity,
       zone: p < 10 ? { label: 'Самоуверенность: мало страховок', color: '--caution' }
         : p > 90 ? { label: 'Страх: много страховок', color: '--stress' }
           : { label: 'Нейтрально', color: '--calm' },
@@ -795,7 +918,7 @@ function usCards(I) {
   if (sl) {
     const p = percentile(spy.si.values, sl.value);
     market.push(card({
-      label: 'Short interest SPY', value: fmtNum(sl.value, 0), unit: 'млн паёв', explain: EXPLAIN.siSPY,
+      label: 'Short interest SPY', source: SRC.short, value: fmtNum(sl.value, 0), unit: 'млн паёв', explain: EXPLAIN.siSPY,
       zone: p > 90 ? { label: 'Много ставок на падение', color: '--caution' }
         : p < 10 ? { label: 'Мало ставок на падение', color: '--caution' }
           : { label: 'Обычный уровень', color: '--calm' },
@@ -805,7 +928,7 @@ function usCards(I) {
   const rec = last(I.usrec);
   if (rec) {
     market.push(card({
-      label: 'Рецессия по NBER', value: rec.value === 1 ? 'Да' : 'Нет', explain: EXPLAIN.usrec,
+      label: 'Рецессия по NBER', source: SRC.nber, value: rec.value === 1 ? 'Да' : 'Нет', explain: EXPLAIN.usrec,
       zone: rec.value === 1 ? { label: 'Идёт рецессия', color: '--panic' } : { label: 'Не объявлена', color: '--calm' },
       detail: `на ${fmtMonth(rec.date)} · объявляется задним числом`,
     }));
@@ -826,7 +949,7 @@ function ruCards(I) {
     const yearAgo = I.keyRate.values[Math.max(0, lowerBound(I.keyRate.dates, addMonths(kr.date, -12)) - 1)];
     const ch = kr.value - yearAgo;
     rates.push(card({
-      label: 'Ключевая ставка ЦБ', value: fmtNum(kr.value, 2), unit: '%', explain: EXPLAIN.keyRate,
+      label: 'Ключевая ставка ЦБ', source: SRC.keyRate, value: fmtNum(kr.value, 2), unit: '%', explain: EXPLAIN.keyRate,
       zone: ch < 0 ? { label: `Снижается: ${fmtNum(ch, 2, true)} п.п. за год`, color: '--caution' }
         : ch > 0 ? { label: `Растёт: ${fmtNum(ch, 2, true)} п.п. за год`, color: '--stress' }
           : { label: 'Без изменений за год', color: '--border' },
@@ -836,57 +959,118 @@ function ruCards(I) {
   const o10 = last(I.ofz.OFZ_10Y), o2 = last(I.ofz.OFZ_2Y);
   if (o10) {
     rates.push(card({
-      label: 'ОФЗ 10 лет / 2 года (КБД)', value: `${fmtNum(o10.value, 2)} / ${fmtNum(o2?.value, 2)}`, unit: '%',
+      label: 'ОФЗ 10 лет / 2 года (КБД)', source: SRC.ofz, value: `${fmtNum(o10.value, 2)} / ${fmtNum(o2?.value, 2)}`, unit: '%',
       explain: `${EXPLAIN.OFZ_10Y} ${EXPLAIN.OFZ_2Y}`, detail: `на ${fmtDate(o10.date)}, Мосбиржа`,
     }));
   }
-  rates.push(curveCard('Спред ОФЗ 10Y − 2Y', I.ruCurve, EXPLAIN.ruCurve));
-  rates.push(curveCard('Спред ОФЗ 10Y − ключевая ставка', I.ruCurveKey, EXPLAIN.ruCurveKey));
-  rates.push(inversionCard(I.ruFlag, EXPLAIN.ruFlag));
+  rates.push(curveCard('Спред ОФЗ 10Y − 2Y', I.ruCurve, EXPLAIN.ruCurve, SRC.ofz));
+  rates.push(curveCard('Спред ОФЗ 10Y − ключевая ставка', I.ruCurveKey, EXPLAIN.ruCurveKey, SRC.ruCurve));
+  rates.push(inversionCard(I.ruFlag, EXPLAIN.ruFlag, SRC.ruCurve));
 
   const credit = [];
   const sp = last(I.ruSpread);
   if (sp) {
     credit.push(percentileCard({
-      label: 'Спред корпоративных облигаций к ОФЗ', unit: 'б.п.', digits: 0, explain: EXPLAIN.ruSpread,
+      label: 'Спред корпоративных облигаций к ОФЗ', source: SRC.ruBonds, unit: 'б.п.', digits: 0, explain: EXPLAIN.ruSpread,
       detail: `на ${fmtDate(sp.date)} · `,
     }, I.ruSpread, SPREAD_PCT_ZONES));
   }
   const cy = last(I.corpYield), gy = last(I.rgbiYield);
   if (cy) {
     credit.push(card({
-      label: 'Доходность: корпоративные / ОФЗ (RGBI)', value: `${fmtNum(cy.value, 2)} / ${fmtNum(gy?.value, 2)}`,
+      label: 'Доходность: корпоративные / ОФЗ (RGBI)', source: SRC.ruBonds, value: `${fmtNum(cy.value, 2)} / ${fmtNum(gy?.value, 2)}`,
       unit: '%', explain: `${EXPLAIN.corpYield} ${EXPLAIN.rgbiYield}`, detail: `на ${fmtDate(cy.date)}`,
     }));
   }
 
   const market = [
-    indexCard('Индекс Мосбиржи (IMOEX)', I.imoex, I.imoexDd, EXPLAIN.imoex),
-    indexCard('Индекс РТС', I.rts, I.rtsDd, EXPLAIN.rts),
-    indexCard('Индекс гособлигаций RGBI', I.rgbi, I.rgbiDd, EXPLAIN.rgbi, 2),
+    indexCard('Индекс Мосбиржи (IMOEX)', I.imoex, I.imoexDd, EXPLAIN.imoex, SRC.ruIndices),
+    indexCard('Индекс РТС', I.rts, I.rtsDd, EXPLAIN.rts, SRC.ruIndices),
+    indexCard('Индекс гособлигаций RGBI', I.rgbi, I.rgbiDd, EXPLAIN.rgbi, SRC.ruIndices, 2),
   ];
 
   const retail = { high: 'Розница в сильном лонге', low: 'Розница в сильном шорте' };
   const pos = [
     extremesCard({
-      label: 'Фьючерсы на IMOEX: физлица, нетто', unit: 'млрд ₽', signed: true,
+      label: 'Фьючерсы на IMOEX: физлица, нетто', source: SRC.futoi, unit: 'млрд ₽', signed: true,
       explain: `${EXPLAIN.futFiz} ${EXPLAIN.futMoney}`, detail: 'задержка 14 дн., ',
     }, I.futImoex.FIZ.net, retail),
     extremesCard({
-      label: 'Фьючерсы на РТС: физлица, нетто', unit: 'млрд ₽', signed: true,
+      label: 'Фьючерсы на РТС: физлица, нетто', source: SRC.futoi, unit: 'млрд ₽', signed: true,
       explain: `${EXPLAIN.futFiz} ${EXPLAIN.futMoney}`, detail: 'задержка 14 дн., ',
     }, I.futRts.FIZ.net, retail),
     extremesCard({
-      label: 'Фьючерсы на RGBI: физлица, нетто', unit: 'млрд ₽', signed: true,
+      label: 'Фьючерсы на RGBI: физлица, нетто', source: SRC.futoi, unit: 'млрд ₽', signed: true,
       explain: `${EXPLAIN.futFiz} ${EXPLAIN.futMoney}`, detail: 'задержка 14 дн., ',
     }, I.futRgbi.FIZ.net, retail),
   ];
+
+  const budget = [];
+  const ytd = last(I.budBalYtd);
+  if (ytd) {
+    const prevYear = I.budBalYtd.values[I.budBalYtd.dates.indexOf(addMonths(ytd.date, -12))];
+    budget.push(card({
+      label: 'Дефицит (−) / профицит бюджета с начала года', value: fmtNum(ytd.value, 2, true), unit: 'трлн ₽',
+      explain: EXPLAIN.budYtd, source: SRC.budget,
+      zone: ytd.value < 0 ? { label: 'Дефицит', color: '--stress' } : { label: 'Профицит', color: '--calm' },
+      detail: `за 01–${fmtMonth(ytd.date)} · год назад за тот же период: ${fmtNum(prevYear, 2, true)} трлн ₽`,
+    }));
+  }
+  const b12 = last(I.budBal12), bg = last(I.budBal12Gdp), nb12 = last(I.budNonoilBal12);
+  if (b12) {
+    budget.push(card({
+      label: 'Дефицит (−) / профицит за 12 месяцев', value: fmtNum(b12.value, 2, true), unit: 'трлн ₽',
+      explain: `${EXPLAIN.budBal} ${EXPLAIN.budGdp}`, source: SRC.budget,
+      zone: bg ? zoneOf(DEFICIT_ZONES, bg.value) : undefined,
+      detail: `по ${fmtMonth(b12.date)} · ≈ ${fmtNum(bg?.value, 1, true)}% ВВП · ненефтегазовый: ${fmtNum(nb12?.value, 1, true)} трлн ₽ · пороги условные`,
+    }));
+  }
+  const oil = last(I.budOil12), share = last(I.budOilShare);
+  if (oil) {
+    const yearAgo = I.budOil12.values[I.budOil12.dates.indexOf(addMonths(oil.date, -12))];
+    const ch = yearAgo ? (oil.value / yearAgo - 1) * 100 : null;
+    budget.push(card({
+      label: 'Нефтегазовые доходы за 12 месяцев', value: fmtNum(oil.value, 2), unit: 'трлн ₽',
+      explain: EXPLAIN.budOil, source: SRC.budget,
+      zone: ch == null ? undefined : ch < 0 ? { label: `Снижаются: ${fmtNum(ch, 0, true)}% г/г`, color: '--stress' }
+        : { label: `Растут: ${fmtNum(ch, 0, true)}% г/г`, color: '--calm' },
+      detail: `по ${fmtMonth(oil.date)} · ${fmtNum(share?.value, 0)}% всех доходов бюджета`,
+    }));
+  }
+  const nt = last(I.nwfTotal), nl = last(I.nwfLiquid);
+  if (nt) {
+    budget.push(card({
+      label: 'ФНБ: всего / ликвидная часть', value: `${fmtNum(nt.value, 1)} / ${fmtNum(nl?.value, 1)}`, unit: 'трлн ₽',
+      explain: `${EXPLAIN.nwf} ${EXPLAIN.nwfLiquid}`, source: SRC.nwf,
+      detail: `на ${fmtMonth(nt.date)} · ${fmtNum(last(I.nwfGdp)?.value, 1)}% ВВП · ${fmtNum(last(I.nwfUsd)?.value, 0)} млрд $`,
+    }));
+  }
+  if (nl && b12 && b12.value < 0) {
+    const cover = nl.value / -b12.value;
+    budget.push(card({
+      label: 'Ликвидная часть ФНБ / годовой дефицит', value: fmtNum(cover, 1), unit: 'года',
+      explain: EXPLAIN.nwfCover, source: `${SRC.nwf}; ${SRC.budget}`,
+      zone: cover < 0.5 ? { label: 'Запас меньше полугода дефицита', color: '--stress' }
+        : cover < 1 ? { label: 'Запас меньше года дефицита', color: '--caution' }
+          : { label: 'Запас больше года дефицита', color: '--calm' },
+      detail: `${fmtNum(nl.value, 1)} трлн ₽ ликвидных средств против дефицита ${fmtNum(-b12.value, 1)} трлн ₽ за 12 мес.`,
+    }));
+  }
+  const mil = last(I.defenseSipri);
+  if (mil) {
+    budget.push(card({
+      label: `Военные расходы, ${mil.date.slice(0, 4)} (оценка SIPRI)`, value: fmtNum(mil.value, 1), unit: 'трлн ₽',
+      explain: `${EXPLAIN.defenseSipri} ${EXPLAIN.defenseMinfin}`, source: SRC.sipri,
+      detail: `${fmtNum(last(I.sipriGdp)?.value, 1)}% ВВП · ${fmtNum(last(I.sipriGov)?.value, 1)}% всех госрасходов`,
+    }));
+  }
 
   return [
     ['Ставки и кривая ОФЗ', rates],
     ['Кредитный риск', credit],
     ['Индексы', market],
     ['Позиции физлиц и юрлиц во фьючерсах', pos],
+    ['Федеральный бюджет', budget],
   ];
 }
 
@@ -931,6 +1115,11 @@ function line(s, name, colorVar, hover, { gap = 20, dash, ...extra } = {}) {
     hovertemplate: hover,
     ...extra,
   };
+}
+
+/** Столбцы (годовые значения). */
+function bars(s, name, colorVar, hover, extra = {}) {
+  return { type: 'bar', name, x: s.dates, y: s.values, marker: { color: css(colorVar) }, hovertemplate: hover, ...extra };
 }
 
 /** Серые вертикальные полосы рецессий (США — NBER, Россия — периоды спада ВВП). */
@@ -1058,7 +1247,7 @@ function longShortTraces(pos, name, colorVar, unit, { hidden = false, digits = 1
 const CHARTS = [
   // ============================ США ============================
   {
-    tab: 'us', id: 'chart-yields', section: 'Кривая доходности', title: 'Доходности трежерис по срокам',
+    tab: 'us', id: 'chart-yields', source: SRC.yields, section: 'Кривая доходности', title: 'Доходности трежерис по срокам',
     intro: 'Сколько платит правительство США за заём на разные сроки. Обычно длинные бумаги доходнее коротких; когда линии сходятся или короткие поднимаются выше длинных, рынок закладывает замедление экономики.',
     build: (I, tab) => ({
       data: YIELDS.map((s) => line(I.yields[s.id], s.name, s.color, '%{y:.2f}%')),
@@ -1067,7 +1256,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'us', id: 'chart-curve', title: 'Спреды кривой доходности',
+    tab: 'us', id: 'chart-curve', source: SRC.curve, title: 'Спреды кривой доходности',
     intro: 'Разница между длинными и короткими ставками. Ниже нуля — инверсия: короткие ставки выше длинных. Исторически инверсия предшествовала рецессиям с лагом от нескольких месяцев до двух лет.',
     includeZero: true,
     build: (I, tab) => ({
@@ -1086,7 +1275,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'us', id: 'chart-hy', section: 'Кредитные спреды', title: 'Спред мусорных облигаций (ICE BofA US High Yield OAS)',
+    tab: 'us', id: 'chart-hy', source: SRC.hy, section: 'Кредитные спреды', title: 'Спред мусорных облигаций (ICE BofA US High Yield OAS)',
     intro: 'Цветом — пороговые зоны: до 500 б.п. спокойно, 500–700 настороженность, 700–1000 стресс, выше 1000 паника. Ограничение источника: с 2024 года ICE разрешает FRED публиковать только последние 3 года этого ряда и убрал более раннюю историю даже из архивных версий; других бесплатных источников полной истории нет. Поэтому для прошлых кризисов ниже есть два длинных аналога: GZ-спред ФРС (с 1973) и Baa − 10Y (с 1986).',
     minTop: 1100,  // всегда видны все четыре зоны, включая «панику»
     build: (I, tab) => ({
@@ -1096,7 +1285,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'us', id: 'chart-gz', title: 'Кредитный спред ФРС (Gilchrist–Zakrajšek) и премия за риск, с 1973 года',
+    tab: 'us', id: 'chart-gz', source: SRC.gz, title: 'Кредитный спред ФРС (Gilchrist–Zakrajšek) и премия за риск, с 1973 года',
     intro: 'Длинная замена истории мусорного спреда: экономисты ФРС считают его по облигациям сотен компаний, помесячно. Видно все рецессии с 1970-х: спред и особенно премия EBP растут заранее.',
     includeZero: true,
     build: (I, tab) => ({
@@ -1109,7 +1298,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'us', id: 'chart-gzprob', title: 'Вероятность рецессии в ближайшие 12 месяцев (модель ФРС)',
+    tab: 'us', id: 'chart-gzprob', source: SRC.gz, title: 'Вероятность рецессии в ближайшие 12 месяцев (модель ФРС)',
     intro: 'Оценка по модели экономистов ФРС на основе премии EBP и наклона кривой. Цветом — условные зоны 20 / 40 / 60%.',
     minTop: 70,
     build: (I, tab) => ({
@@ -1119,7 +1308,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'us', id: 'chart-baa', title: "Moody's Baa − 10Y, с 1986 года",
+    tab: 'us', id: 'chart-baa', source: SRC.baa, title: "Moody's Baa − 10Y, с 1986 года",
     intro: 'Дневной кредитный спред с длинной историей. Двигается вместе со спредом мусорных облигаций, но в меньшем масштабе, поэтому зоны свои и приблизительные: до 250 б.п. спокойно, 250–350 настороженность, 350–450 стресс, выше 450 паника (пики: 2001–02 ≈ 390, 2020 ≈ 430, 2008 ≈ 616).',
     minTop: 500,
     build: (I, tab) => ({
@@ -1129,7 +1318,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'us', id: 'chart-roc', title: 'Скорость изменения кредитных спредов',
+    tab: 'us', id: 'chart-roc', source: SRC.hyRoc, title: 'Скорость изменения кредитных спредов',
     intro: 'Насколько спреды выросли или упали за выбранное окно (поле «Окно ROC» сверху). Резкий рост — бегство от риска, даже если сам уровень спреда ещё спокойный.',
     includeZero: true,
     build: (I, tab) => ({
@@ -1145,7 +1334,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'us', id: 'chart-margin-m2', section: 'Плечо на рынке', title: 'Маржинальный долг к денежной массе M2',
+    tab: 'us', id: 'chart-margin-m2', source: SRC.margin, section: 'Плечо на рынке', title: 'Маржинальный долг к денежной массе M2',
     intro: 'Сколько денег инвесторы заняли у брокеров на покупку акций — в процентах от всей денежной массы. Данные FINRA есть с 1997 года; до 2010 года они охватывали только членов NYSE.',
     build: (I, tab) => ({
       data: [line(I.marginM2, 'Маржинальный долг / M2', '--s-2y', '%{y:.2f}% · долг %{customdata:,.0f} млрд $',
@@ -1159,7 +1348,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'us', id: 'chart-cap-margin', title: 'Капитализация рынка к маржинальному долгу',
+    tab: 'us', id: 'chart-cap-margin', source: SRC.cap, title: 'Капитализация рынка к маржинальному долгу',
     intro: 'Во сколько раз стоимость всех американских акций больше долга, взятого на их покупку (в процентах: 7000% = в 70 раз). Чем ниже линия, тем сильнее рынок «на плече». Поквартально: капитализация из отчёта ФРС Z.1 — замена Wilshire 5000.',
     build: (I, tab) => ({
       data: [line(I.capMargin, 'Капитализация / маржинальный долг', '--s-30y', '%{y:,.0f}% · капитализация %{customdata:,.1f} трлн $',
@@ -1172,7 +1361,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'us', id: 'chart-indices', section: 'Индексы акций', title: 'S&P 500 и NASDAQ Composite',
+    tab: 'us', id: 'chart-indices', source: SRC.indices, section: 'Индексы акций', title: 'S&P 500 и NASDAQ Composite',
     intro: 'Логарифмическая шкала: одинаковое расстояние по вертикали — одинаковый процент изменения. Любой индекс можно наложить на остальные графики переключателем «Наложить индекс» сверху. S&P 500 до октября 2016 г. — среднемесячные значения (данные Шиллера), дальше — дневные с FRED.',
     log: true, noOverlay: true,
     build: (I, tab) => ({
@@ -1185,7 +1374,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'us', id: 'chart-tff-spx', section: 'Позиционирование и настроения', title: 'Фьючерсы на S&P 500: лонги и шорты в деньгах (CFTC)',
+    tab: 'us', id: 'chart-tff-spx', source: SRC.tff, section: 'Позиционирование и настроения', title: 'Фьючерсы на S&P 500: лонги и шорты в деньгах (CFTC)',
     intro: 'Сколько денег каждая группа участников держит в длинных и коротких позициях во фьючерсах E-mini S&P 500, млрд $, еженедельно с 2006 года (отчёт CFTC Traders in Financial Futures). Разбивки на юрлиц и физлиц в американских данных нет — ближе всего к ней эти группы.',
     build: (I, tab) => ({
       data: TFF_GROUPS.flatMap((g) => longShortTraces(I.tffSpx[g.key], g.name, g.color, 'млрд $', { hidden: g.hidden, digits: 0 })),
@@ -1194,7 +1383,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'us', id: 'chart-tff-ndx', title: 'Фьючерсы на NASDAQ-100: лонги и шорты в деньгах (CFTC)',
+    tab: 'us', id: 'chart-tff-ndx', source: SRC.tff, title: 'Фьючерсы на NASDAQ-100: лонги и шорты в деньгах (CFTC)',
     intro: 'То же для фьючерсов E-mini NASDAQ-100, млрд $. Технологический сектор чувствительнее к настроениям, поэтому изменения позиций здесь резче.',
     build: (I, tab) => ({
       data: TFF_GROUPS.flatMap((g) => longShortTraces(I.tffNdx[g.key], g.name, g.color, 'млрд $', { hidden: g.hidden, digits: 1 })),
@@ -1203,7 +1392,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'us', id: 'chart-cot', title: 'Чистые позиции во фьючерсах на S&P 500, % от открытого интереса (CFTC COT)',
+    tab: 'us', id: 'chart-cot', source: SRC.cot, title: 'Чистые позиции во фьючерсах на S&P 500, % от открытого интереса (CFTC COT)',
     intro: 'Чистая позиция (покупки минус продажи) каждой группы в процентах от всех открытых контрактов E-mini S&P 500, еженедельно с 1997 года. В 1997–2000 годах контракт был маленьким, поэтому доли тогда сильно скачут.',
     includeZero: true,
     build: (I, tab) => ({
@@ -1221,7 +1410,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'us', id: 'chart-putcall', title: 'Put/call ratio (CBOE)',
+    tab: 'us', id: 'chart-putcall', source: SRC.putcall, title: 'Put/call ratio (CBOE)',
     intro: `Соотношение ставок на падение и на рост в опционах. Основные линии сглажены средним за ${PC_SMOOTH} торговый день; сырые дневные значения можно включить в легенде. По акциям — с 2006 года, по всем опционам — с 2003-го.`,
     build: (I, tab) => ({
       data: [
@@ -1239,7 +1428,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'us', id: 'chart-short', title: 'Short interest по индексным ETF (FINRA)',
+    tab: 'us', id: 'chart-short', source: SRC.short, title: 'Short interest по индексным ETF (FINRA)',
     intro: 'Сколько паёв крупнейших индексных фондов продано в шорт, млн штук, дважды в месяц с конца 2017 года. Сводного short interest по всему рынку в бесплатном доступе нет, поэтому берём ETF как прокси: шорт в них — это ставки на падение рынка и хеджирование портфелей.',
     build: (I, tab) => {
       const etfs = [['SPY', '--s-10y'], ['QQQ', '--s-3m'], ['IWM', '--s-30y']];
@@ -1257,7 +1446,7 @@ const CHARTS = [
 
   // ============================ Россия ============================
   {
-    tab: 'ru', id: 'ru-rates', section: 'Ставки и кривая ОФЗ', title: 'Ключевая ставка и доходности ОФЗ',
+    tab: 'ru', id: 'ru-rates', source: `${SRC.keyRate}; ${SRC.ofz}`, section: 'Ставки и кривая ОФЗ', title: 'Ключевая ставка и доходности ОФЗ',
     intro: 'Ключевая ставка Банка России (с 2013 года) и доходности ОФЗ по кривой бескупонной доходности Мосбиржи (с 2014 года). Когда короткие ОФЗ доходнее длинных, рынок ждёт снижения ставки — обычно после периода жёсткой политики.',
     build: (I, tab) => ({
       data: [
@@ -1269,7 +1458,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'ru', id: 'ru-curve', title: 'Спреды кривой ОФЗ',
+    tab: 'ru', id: 'ru-curve', source: SRC.ruCurve, title: 'Спреды кривой ОФЗ',
     intro: 'Наклон кривой ОФЗ. Ниже нуля — инверсия. В России она чаще всего означает, что ЦБ держит ставку выше рыночных ожиданий на будущее, чтобы сбить инфляцию, — это охлаждает экономику с задержкой.',
     includeZero: true,
     build: (I, tab) => ({
@@ -1288,7 +1477,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'ru', id: 'ru-bonds', section: 'Кредитный риск', title: 'Доходности индексов облигаций Мосбиржи',
+    tab: 'ru', id: 'ru-bonds', source: SRC.ruBonds, section: 'Кредитный риск', title: 'Доходности индексов облигаций Мосбиржи',
     intro: 'Средняя доходность к погашению государственных (RGBI) и корпоративных облигаций. Разрыв между ними — плата за риск компаний.',
     build: (I, tab) => ({
       data: [
@@ -1300,7 +1489,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'ru', id: 'ru-spread', title: 'Спред корпоративных облигаций к ОФЗ',
+    tab: 'ru', id: 'ru-spread', source: `расчёт по данным: ${SRC.ruBonds}`, title: 'Спред корпоративных облигаций к ОФЗ',
     intro: 'Российский аналог кредитного спреда: насколько доходность корпоративного индекса выше доходности RGBI. Общепринятых порогов нет, поэтому зона на карточке — по перцентилю собственной истории.',
     build: (I, tab) => ({
       data: [line(I.ruSpread, 'Корпоративные − ОФЗ', '--s-5y', '%{y:+.0f} б.п.')],
@@ -1309,7 +1498,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'ru', id: 'ru-indices', section: 'Индексы', title: 'Индекс Мосбиржи и индекс РТС',
+    tab: 'ru', id: 'ru-indices', source: SRC.ruIndices, section: 'Индексы', title: 'Индекс Мосбиржи и индекс РТС',
     intro: 'Логарифмическая шкала. IMOEX — в рублях, РТС — в долларах; расхождение линий показывает влияние курса рубля.',
     log: true, noOverlay: true,
     build: (I, tab) => ({
@@ -1319,7 +1508,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'ru', id: 'ru-rgbi', title: 'Индекс гособлигаций RGBI',
+    tab: 'ru', id: 'ru-rgbi', source: SRC.ruIndices, title: 'Индекс гособлигаций RGBI',
     intro: 'Ценовой индекс ОФЗ. Падение RGBI — рост доходностей: рынок ждёт более высокую ставку ЦБ или требует больше за риск.',
     build: (I, tab) => ({
       data: [line(I.rgbi, 'RGBI', '--s-30y', '%{y:.2f}')],
@@ -1328,7 +1517,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'ru', id: 'ru-fut-imoex', section: 'Позиции физлиц и юрлиц во фьючерсах', title: 'Фьючерсы на индекс Мосбиржи: лонги и шорты, млрд ₽',
+    tab: 'ru', id: 'ru-fut-imoex', source: SRC.futoi, section: 'Позиции физлиц и юрлиц во фьючерсах', title: 'Фьючерсы на индекс Мосбиржи: лонги и шорты, млрд ₽',
     intro: 'Сумма по фьючерсам MX, MM (мини) и вечному IMOEXF. Мосбиржа публикует открытые позиции отдельно для физлиц и юрлиц — это та самая разбивка, которой нет в американских данных. Бесплатно — с 2020 года и с задержкой 14 дней.',
     build: (I, tab) => ({
       data: [
@@ -1344,7 +1533,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'ru', id: 'ru-fut-net', title: 'Нетто-позиции физлиц во фьючерсах, млрд ₽',
+    tab: 'ru', id: 'ru-fut-net', source: SRC.futoi, title: 'Нетто-позиции физлиц во фьючерсах, млрд ₽',
     intro: 'Лонги минус шорты физлиц по каждому классу фьючерсов. Выше нуля — розница в среднем ставит на рост, ниже — на падение. Нетто юрлиц — та же линия с обратным знаком.',
     includeZero: true,
     build: (I, tab) => ({
@@ -1363,7 +1552,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'ru', id: 'ru-fut-rts', title: 'Фьючерс на индекс РТС: лонги и шорты, млрд ₽',
+    tab: 'ru', id: 'ru-fut-rts', source: SRC.futoi, title: 'Фьючерс на индекс РТС: лонги и шорты, млрд ₽',
     intro: 'Исторически самый ликвидный фьючерс Мосбиржи. Стоимость контракта — 2 $ за пункт индекса, в рубли переведена по курсу ЦБ на дату.',
     build: (I, tab) => ({
       data: [
@@ -1395,7 +1584,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'ru', id: 'ru-fut-accounts', title: 'Число физлиц в лонге и шорте по фьючерсам на индекс Мосбиржи',
+    tab: 'ru', id: 'ru-fut-accounts', source: SRC.futoi, title: 'Число физлиц в лонге и шорте по фьючерсам на индекс Мосбиржи',
     intro: 'Сколько счетов физлиц держат длинные и короткие позиции (сумма по MX, MM и IMOEXF; человек с позициями в нескольких контрактах считается несколько раз).',
     build: (I, tab) => ({
       data: [
@@ -1404,6 +1593,87 @@ const CHARTS = [
       ],
       layout: baseLayout(tab),
       explain: [['Счета в лонге и шорте', '--muted', EXPLAIN.accounts]],
+    }),
+  },
+  {
+    tab: 'ru', id: 'ru-budget-flows', source: SRC.budget, section: 'Федеральный бюджет',
+    title: 'Доходы и расходы федерального бюджета за 12 месяцев, трлн ₽',
+    intro: 'Скользящие суммы за последние 12 месяцев по данным Минфина (с 2011 года). Разрыв между расходами и доходами — дефицит бюджета.',
+    build: (I, tab) => ({
+      data: [
+        line(I.budExp12, 'Расходы', '--panic', '%{y:.1f} трлн ₽', { gap: 45 }),
+        line(I.budRev12, 'Доходы', '--s-10y', '%{y:.1f} трлн ₽', { gap: 45 }),
+        line(I.budNonoil12, 'Ненефтегазовые доходы', '--s-30y', '%{y:.1f} трлн ₽', { gap: 45 }),
+        line(I.budOil12, 'Нефтегазовые доходы', '--s-3m', '%{y:.1f} трлн ₽', { gap: 45 }),
+      ],
+      layout: baseLayout(tab),
+      explain: [
+        ['Расходы', '--panic', EXPLAIN.budExp], ['Доходы', '--s-10y', EXPLAIN.budRev],
+        ['Ненефтегазовые доходы', '--s-30y', EXPLAIN.budNonoil], ['Нефтегазовые доходы', '--s-3m', EXPLAIN.budOil],
+      ],
+    }),
+  },
+  {
+    tab: 'ru', id: 'ru-budget-balance', source: SRC.budget, title: 'Дефицит (−) и профицит федерального бюджета, трлн ₽',
+    intro: 'Сколько бюджет тратит сверх доходов. Основная линия — сумма за 12 месяцев (в подсказке — оценка в % ВВП); пунктир — нарастающий итог с начала года, как его публикует Минфин.',
+    includeZero: true,
+    build: (I, tab) => ({
+      data: [
+        ...fillBelowZero(I.budBal12, '--panic', 'bal12'),
+        line(I.budBal12, 'За 12 месяцев', '--panic', '%{y:+.2f} трлн ₽ · %{customdata:+.1f}% ВВП',
+          { gap: 45, legendgroup: 'bal12', customdata: asof(I.budBal12, I.budBal12Gdp, (a, b) => b).values }),
+        line(I.budNonoilBal12, 'Ненефтегазовый, за 12 месяцев', '--s-5y', '%{y:+.1f} трлн ₽', { gap: 45 }),
+        line(I.budBalYtd, 'С начала года', '--muted', '%{y:+.2f} трлн ₽', { gap: 45, dash: 'dot' }),
+      ],
+      layout: baseLayout(tab, { zeroLine: true }),
+      explain: [
+        ['За 12 месяцев', '--panic', `${EXPLAIN.budBal} ${EXPLAIN.budGdp}`],
+        ['Ненефтегазовый дефицит', '--s-5y', EXPLAIN.budNonoilBal],
+        ['С начала года', '--muted', EXPLAIN.budYtd],
+      ],
+    }),
+  },
+  {
+    tab: 'ru', id: 'ru-nwf', source: SRC.nwf, title: 'Фонд национального благосостояния, трлн ₽',
+    intro: 'Весь объём ФНБ и его ликвидная часть — то, что можно быстро потратить на покрытие дефицита. Помесячно с 2008 года.',
+    build: (I, tab) => ({
+      data: [
+        line(I.nwfLiquid, 'Ликвидная часть', '--s-30y', '%{y:.2f} трлн ₽',
+          { gap: 45, fill: 'tozeroy', fillcolor: withAlpha('--s-30y', 0.25) }),
+        line(I.nwfTotal, 'Весь фонд', '--s-10y', '%{y:.2f} трлн ₽ · %{customdata:.1f}% ВВП',
+          { gap: 45, customdata: combine(I.nwfTotal, I.nwfGdp, (a, b) => b, monthKey).values }),
+      ],
+      layout: baseLayout(tab),
+      explain: [['Весь фонд', '--s-10y', EXPLAIN.nwf], ['Ликвидная часть', '--s-30y', EXPLAIN.nwfLiquid]],
+    }),
+  },
+  {
+    tab: 'ru', id: 'ru-defense', source: SRC.defense, title: 'Расходы на оборону по годам, трлн ₽',
+    intro: 'Официальные данные Минфина по разделу «Национальная оборона» есть только до 2021 года — с 2022 года разбивка расходов закрыта. Для последних лет — независимая оценка SIPRI, которая шире бюджетного раздела.',
+    includeZero: true,
+    build: (I, tab) => {
+      const built = {
+        data: [
+          bars(I.defenseMinfin, 'Минфин: «Национальная оборона»', '--s-10y', '%{y:.2f} трлн ₽'),
+          bars(I.defenseSipri, 'Оценка SIPRI', '--s-3m', '%{y:.2f} трлн ₽'),
+        ],
+        layout: baseLayout(tab),
+        explain: [['Минфин', '--s-10y', EXPLAIN.defenseMinfin], ['Оценка SIPRI', '--s-3m', EXPLAIN.defenseSipri]],
+      };
+      built.layout.barmode = 'group';
+      return built;
+    },
+  },
+  {
+    tab: 'ru', id: 'ru-defense-share', source: SRC.sipri, title: 'Военные расходы: доля в ВВП и в госрасходах (SIPRI), %',
+    intro: 'Какая часть экономики и государственных расходов уходит на оборону, по годам.',
+    build: (I, tab) => ({
+      data: [
+        line(I.sipriGdp, '% ВВП', '--s-2y', '%{y:.1f}%', { gap: 400, mode: 'lines+markers' }),
+        line(I.sipriGov, '% всех госрасходов', '--s-5y', '%{y:.1f}%', { gap: 400, mode: 'lines+markers' }),
+      ],
+      layout: baseLayout(tab, { unit: '%' }),
+      explain: [['Доля в ВВП и госрасходах', '--muted', EXPLAIN.sipriShare]],
     }),
   },
 ];
@@ -1425,6 +1695,7 @@ function buildPanels(tab) {
       <p class="note">${escapeHtml(c.intro)}</p>
       <div class="chart" id="${c.id}"></div>
       <div class="explain" id="${c.id}-explain"></div>
+      <p class="source" id="${c.id}-source"></p>
     </section>`).join('');
 }
 
@@ -1528,6 +1799,10 @@ function renderCharts(tab) {
     }
     Plotly.react(el, data, layout, PLOT_CONFIG);
     if (!el.dataset.bound) bindChartEvents(el, def);
+
+    const sources = [def.source, `полосы — ${tab === 'ru' ? SRC.ruCrises : `рецессии ${SRC.nber}`}`];
+    if (overlay && !def.noOverlay) sources.push(`наложенный индекс — ${tab === 'ru' ? SRC.ruIndices : SRC.indices}`);
+    document.getElementById(`${def.id}-source`).textContent = `Источник: ${sources.join('; ')}.`;
 
     document.getElementById(`${def.id}-explain`).innerHTML = explain.map(([name, color, text]) =>
       `<div><span class="swatch" style="background: var(${color})"></span><b>${escapeHtml(name)}.</b> ${escapeHtml(text)}</div>`,
@@ -1748,6 +2023,7 @@ const SOURCE_NAMES = {
   finra_margin: 'маржинальный долг FINRA', sp500_history: 'история S&P 500', cftc_cot: 'COT CFTC',
   cftc_tff: 'TFF CFTC', finra_short: 'short interest FINRA', cboe_archive: 'put/call CBOE', fed_gz: 'GZ-спред ФРС',
   moex_indices: 'индексы Мосбиржи', moex_futoi: 'позиции Мосбиржи', cbr: 'Банк России',
+  minfin_budget: 'бюджет Минфина', minfin_nwf: 'ФНБ Минфина', sipri: 'SIPRI',
 };
 
 function renderStatus() {
