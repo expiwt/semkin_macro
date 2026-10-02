@@ -1201,6 +1201,9 @@ function baseLayout(tab, { unit = '', zeroLine = false, shapes = [], annotations
   };
 }
 
+// Узкий экран (телефон) — графики раскладываются иначе, см. renderCharts().
+const NARROW = matchMedia('(max-width: 640px)');
+
 const PLOT_CONFIG = { responsive: true, displaylogo: false, locale: 'ru', modeBarButtonsToRemove: ['lasso2d', 'select2d'] };
 
 /**
@@ -1792,12 +1795,44 @@ function renderCharts(tab) {
     data.push(recessionLegendTrace(tab));
     explain.push(['Серые полосы', '--muted', tab === 'ru' ? EXPLAIN.ruCrises : EXPLAIN.usrec]);
 
+    // Телефон: легенда в две колонки мелким шрифтом, высота графика растёт с числом рядов,
+    // чтобы легенда не съедала область графика; панель кнопок Plotly скрыта.
+    // Касания: протягивание по графику прокручивает страницу (а не рисует рамку зума),
+    // касание показывает значения на дату; период выбирается кнопками и полями дат.
+    if (NARROW.matches) {
+      // Пары «лонг/шорт» — одна строка легенды на группу (касание скрывает обе линии).
+      for (const t of data) {
+        if (t.legendgroup && t.line && t.line.dash === 'dash') t.showlegend = false;
+      }
+      const shown = data.filter((t) => t.showlegend !== false);
+      for (const t of shown) {
+        if (/: лонг$/.test(t.name || '')) {
+          t.name = t.name.replace(/: лонг$/, '');
+          t.hovertemplate += ' (лонг)';  // во всплывающих значениях пометка остаётся
+        }
+      }
+      // Короткие названия — по два в строку, иначе по одному (длинные наезжали бы друг на друга).
+      const twoCols = shown.every((t) => (t.name || '').length <= 16);
+      layout.legend = {
+        ...layout.legend, font: { ...layout.legend.font, size: 10 },
+        entrywidth: twoCols ? 0.5 : 1, entrywidthmode: 'fraction',
+      };
+      layout.margin.l = 44;
+      layout.height = 250 + Math.ceil(shown.length / (twoCols ? 2 : 1)) * 20;
+      layout.dragmode = false;
+      layout.xaxis.fixedrange = true;
+      el.style.height = `${layout.height}px`;
+    } else {
+      delete layout.height;
+      el.style.height = '';
+    }
+
     // Ключи вида 'yaxis.range' раскладываем в объект layout.
     for (const [path, v] of Object.entries(axisUpdate(data, def))) {
       const [axis, prop] = path.split('.');
       if (layout[axis]) layout[axis][prop] = v;
     }
-    Plotly.react(el, data, layout, PLOT_CONFIG);
+    Plotly.react(el, data, layout, { ...PLOT_CONFIG, displayModeBar: !NARROW.matches });
     if (!el.dataset.bound) bindChartEvents(el, def);
 
     const sources = [def.source, `полосы — ${tab === 'ru' ? SRC.ruCrises : `рецессии ${SRC.nber}`}`];
@@ -2077,12 +2112,25 @@ function init() {
 
   document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.tab)));
 
+  // Подсказки карточек: открываются и закрываются касанием (на телефоне нет наведения,
+  // а iPhone не даёт кнопке фокус при касании). Касание вне подсказки закрывает её.
+  document.addEventListener('click', (e) => {
+    const info = e.target.closest('.info');
+    const open = info && info.closest('.card');
+    const wasOpen = open && open.classList.contains('tip-open');
+    document.querySelectorAll('.card.tip-open').forEach((c) => c.classList.remove('tip-open'));
+    if (open && !wasOpen) open.classList.add('tip-open');
+  });
+
   $('#refresh').addEventListener('click', () => load(true));
   if (STATIC_MODE) {
     $('#refresh').hidden = true;  // данные пересобираются по расписанию, кнопке нечего делать
     $('#logout').hidden = false;
     $('#logout').addEventListener('click', () => { forgetKey(); location.reload(); });
   }
+
+  // Переход через ширину телефона (поворот экрана, изменение окна) → перерисовать графики.
+  NARROW.addEventListener('change', () => state.ind && renderCharts(state.tab));
 
   // Смена системной темы → перерисовать графики новыми цветами.
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => state.ind && renderCharts(state.tab));

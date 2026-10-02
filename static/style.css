@@ -137,7 +137,10 @@ button.link { background: none; border: none; padding: 0; color: var(--accent); 
   font-size: 13px; line-height: 1.45;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
 }
-.card:hover .tip, .card:focus-within .tip { display: block; }
+/* Подсказка: наведение мышью (только на устройствах с мышью) или касание по «?» (класс tip-open) */
+@media (hover: hover) { .card:hover .tip { display: block; } }
+.card.tip-open .tip { display: block; }
+.info { touch-action: manipulation; }
 
 /* Панель управления */
 .controls {
@@ -162,6 +165,7 @@ button.ghost { margin-left: auto; }
 button:disabled { opacity: 0.6; cursor: progress; }
 input[type="number"] { width: 70px; }
 label { font-size: 14px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+.narrow-only { display: none; }
 .hint { color: var(--muted); font-size: 13px; margin: 8px 2px 0; }
 
 /* Панели графиков */
@@ -187,6 +191,10 @@ label { font-size: 14px; color: var(--muted); display: inline-flex; gap: 6px; al
 
 @media (max-width: 640px) {
   h1 { font-size: 21px; }
+  .presets button, .tabs button { padding: 8px 12px; }
+  .wide-only { display: none; }
+  .narrow-only { display: block; }
+  .info { width: 28px; height: 28px; line-height: 26px; top: 6px; right: 6px; }
   .chart { height: 300px; }
   .status { text-align: left; }
   .status-wrap { align-items: flex-start; }
