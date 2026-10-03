@@ -199,6 +199,12 @@ html.touch .chart { touch-action: pan-y; cursor: default; }
 .note { color: var(--muted); font-size: 13px; margin: 0 0 6px; max-width: 920px; }
 .chart { width: 100%; height: 380px; }
 .chart-wrap { position: relative; }
+.dots { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
+.dot {
+  position: absolute; width: 10px; height: 10px; border-radius: 50%;
+  transform: translate(-50%, -50%); border: 2px solid var(--surface);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
 
 /* Заголовок панели с кнопкой «на весь экран» */
 .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }

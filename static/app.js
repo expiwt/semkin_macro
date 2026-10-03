@@ -1242,8 +1242,7 @@ function baseLayout(tab, { unit = '', zeroLine = false, shapes = [], annotations
     xaxis: {
       type: 'date', range: state.range, gridcolor: grid, linecolor: grid,
       hoverformat: '%d.%m.%Y', tickfont: { color: muted },
-      showspikes: true, spikemode: 'across', spikesnap: 'cursor', spikedash: 'solid',
-      spikethickness: 1, spikecolor: withAlpha('--text', 0.3),
+      showspikes: false,  // вместо вертикальной линии — точки цвета линий (drawDots)
     },
     yaxis: {
       type: log ? 'log' : 'linear', gridcolor: grid, ticksuffix: unit, fixedrange: true,
@@ -1758,6 +1757,7 @@ function buildPanels(tab) {
       <p class="note">${escapeHtml(c.intro)}</p>
       <div class="chart-wrap">
         <div class="chart" id="${c.id}"></div>
+        <div class="dots" id="${c.id}-dots"></div>
         <div class="cursor-box" id="${c.id}-cursor" hidden></div>
       </div>
       <details class="more">
@@ -1923,8 +1923,6 @@ function renderChart(def, tab = state.tab) {
       layout.dragmode = false;
       layout.xaxis.fixedrange = true;
       layout.hovermode = false;  // значения показывает своя подсказка (showCursor) — её можно закрыть касанием
-      data.push(cursorTrace('y'));
-      if (overlay && !def.noOverlay) data.push(cursorTrace('y2'));
     }
     if (NARROW.matches) {
       // Пары «лонг/шорт» — одна строка легенды на группу (касание скрывает обе линии).
@@ -1967,6 +1965,7 @@ function renderChart(def, tab = state.tab) {
       if (layout[axis]) layout[axis][prop] = v;
     }
     hideCursorBox(el);
+    clearDots(el);
     Plotly.react(el, data, layout, { ...PLOT_CONFIG, displayModeBar: !NARROW.matches && !TOUCH.matches && state.fs !== def.id });
     if (!el.dataset.bound) bindChartEvents(el, def);
 
@@ -1984,13 +1983,28 @@ function renderChart(def, tab = state.tab) {
 // Подсказка со значениями для сенсорных экранов
 // ---------------------------------------------------------------------------
 
-/** Невидимая трасса для кружков на линиях в точке касания (своя для каждой оси Y). */
-function cursorTrace(axis) {
-  return {
-    type: 'scatter', mode: 'markers', x: [], y: [], yaxis: axis, meta: axis === 'y' ? 'cursor' : 'cursor2',
-    showlegend: false, hoverinfo: 'skip', cliponaxis: false,
-    marker: { size: 10, color: [], line: { width: 2, color: css('--surface') } },
-  };
+/**
+ * Точки цвета линий в выбранных датах — поверх графика, отдельным HTML-слоем
+ * (без перерисовки Plotly, поэтому двигаются за курсором плавно).
+ * pts: [{ x: дата, y: значение, axis: 'y' | 'y2', color }].
+ */
+function drawDots(el, pts) {
+  const layer = document.getElementById(`${el.id}-dots`);
+  if (!layer || !el._fullLayout) return;
+  const fl = el._fullLayout, xa = fl.xaxis;
+  layer.innerHTML = pts.map((p) => {
+    const ya = p.axis === 'y2' ? fl.yaxis2 : fl.yaxis;
+    if (!ya || p.y == null) return '';
+    const px = xa._offset + xa.d2p(p.x), py = ya._offset + ya.d2p(p.y);
+    if (!Number.isFinite(px) || !Number.isFinite(py)) return '';
+    if (px < xa._offset - 1 || px > xa._offset + xa._length + 1 || py < ya._offset - 1 || py > ya._offset + ya._length + 1) return '';
+    return `<span class="dot" style="left:${px}px;top:${py}px;background:${p.color}"></span>`;
+  }).join('');
+}
+
+function clearDots(el) {
+  const layer = document.getElementById(`${el.id}-dots`);
+  if (layer) layer.innerHTML = '';
 }
 
 /** Число по формату из hovertemplate: '.2f', '+.0f', ',.1f', '+,.1f' и т.п. */
@@ -2050,17 +2064,15 @@ function unitOf(tpl) {
   return { unit: m ? m[2].trimEnd() : '', digits };
 }
 
-/** Ставит кружки (цвет линии) в точках на кривых: points = { y: [...], y2: [...] }. */
+/** Точки на кривых + фигуры замера (points = { y: [...], y2: [...] }). */
 function setMarkers(el, points, shapes) {
-  const upd = { x: [], y: [], 'marker.color': [] }, idx = [];
-  el.data.forEach((t, i) => {
-    if (t.meta !== 'cursor' && t.meta !== 'cursor2') return;
-    const p = points[t.meta === 'cursor' ? 'y' : 'y2'];
-    upd.x.push(p.map((q) => q.x)); upd.y.push(p.map((q) => q.y)); upd['marker.color'].push(p.map((q) => q.c)); idx.push(i);
-  });
+  const pts = [...points.y.map((p) => ({ ...p, axis: 'y' })), ...points.y2.map((p) => ({ ...p, axis: 'y2' }))]
+    .map((p) => ({ x: p.x, y: p.y, axis: p.axis, color: p.c }));
   state.syncing = true;
-  return Promise.all([Plotly.relayout(el, { shapes }), idx.length ? Plotly.restyle(el, upd, idx) : null])
-    .finally(() => { state.syncing = false; });
+  return Plotly.relayout(el, { shapes }).finally(() => {
+    state.syncing = false;
+    drawDots(el, pts);  // после relayout: оси уже в окончательном виде
+  });
 }
 
 /** Ставит блок значений там, где он не заденет линии: справа, слева или между ними. */
@@ -2125,18 +2137,16 @@ function hideCursorBox(el) {
   if (box) box.hidden = true;
 }
 
-/** Убирает подсказку касания: линию, кружки и блок со значениями. */
+/** Убирает подсказку: точки, линии замера и блок со значениями. */
 function hideCursor(el) {
   hideCursorBox(el);
+  clearDots(el);
   if (!el.data || !el.layout) return;
-  const idx = el.data.map((t, i) => (t.meta === 'cursor' || t.meta === 'cursor2' ? i : -1)).filter((i) => i >= 0);
-  const hasLine = (el.layout.shapes || []).some((sh) => sh.name === 'cursor' || sh.name === 'measure');
-  if (!idx.length && !hasLine) return;
+  const shapes = el.layout.shapes || [];
+  if (!shapes.some((sh) => sh.name === 'cursor' || sh.name === 'measure')) return;
   state.syncing = true;
-  Promise.all([
-    idx.length ? Plotly.restyle(el, { x: [[]], y: [[]] }, idx) : null,
-    hasLine ? Plotly.relayout(el, { shapes: el.layout.shapes.filter((sh) => sh.name !== 'cursor' && sh.name !== 'measure') }) : null,
-  ]).finally(() => { state.syncing = false; });
+  Plotly.relayout(el, { shapes: shapes.filter((sh) => sh.name !== 'cursor' && sh.name !== 'measure') })
+    .finally(() => { state.syncing = false; });
 }
 
 /**
@@ -2150,12 +2160,8 @@ function showCursor(el, clientX) {
   const { date, rows } = valuesAt(el, xa.p2l(px));
   if (!rows.length) { hideCursor(el); return; }
 
-  // Линия — на дате найденных значений, чтобы проходила точно через кружки
+  // Только точки цвета линий — без вертикальной линии
   const shapes = (el.layout.shapes || []).filter((sh) => sh.name !== 'cursor' && sh.name !== 'measure');
-  shapes.push({
-    type: 'line', name: 'cursor', xref: 'x', yref: 'paper', x0: date, x1: date, y0: 0, y1: 1,
-    line: { color: withAlpha('--text', 0.35), width: 1 },
-  });
   const points = { y: [], y2: [] };
   for (const r of rows) points[r.axis].push({ x: r.tr.x[r.i], y: r.tr.y[r.i], c: r.color });
   setMarkers(el, points, shapes);
@@ -2355,6 +2361,17 @@ function bindChartEvents(el, def) {
       applyPreset('all'); // двойной клик по графику — показать всю историю
     }
   });
+
+  // Наведение мышью: точки цвета линий на всех рядах в дате под курсором.
+  el.on('plotly_hover', (ev) => {
+    if (TOUCH.matches) return;
+    drawDots(el, ev.points
+      .filter((p) => !p.data.meta || p.data.meta === 'overlay')
+      .map((p) => ({ x: p.x, y: p.y, axis: p.data.yaxis === 'y2' ? 'y2' : 'y',
+        color: (p.data.line && p.data.line.color) || (p.data.marker && p.data.marker.color) })));
+  });
+  el.on('plotly_unhover', () => { if (!TOUCH.matches) clearDots(el); });
+  el.on('plotly_relayout', () => clearDots(el));  // после зума старые позиции точек неверны
 
   // Клик по легенде → пересчитываем ось Y; псевдо-ряд «Рецессии» скрывает полосы.
   el.on('plotly_restyle', () => {
