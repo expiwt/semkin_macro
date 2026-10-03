@@ -1948,13 +1948,16 @@ function renderChart(def, tab = state.tab) {
       layout.height = 250 + Math.ceil(shown.length / (twoCols ? 2 : 1)) * 20;
       el.style.height = `${layout.height}px`;
     } else {
-      delete layout.height;
+      // Высота из CSS (.chart), заданная явно: иначе после выхода из полноэкранного режима
+      // Plotly оставил бы прежнюю, полноэкранную высоту.
       el.style.height = '';
+      layout.height = parseFloat(getComputedStyle(el).height) || 380;
     }
     // Весь экран: график занимает всю высоту окна под заголовком.
     if (state.fs === def.id) {
       const head = document.querySelector(`#panel-${def.id} .panel-head`);
       layout.height = Math.max(280, window.innerHeight - (head ? head.offsetHeight : 40) - 28);
+      layout.width = el.clientWidth;          // явно: сам Plotly ширину развёрнутой панели не подхватывает
       el.style.height = `${layout.height}px`;
     }
 
@@ -2315,7 +2318,6 @@ function openFullscreen(id) {
   btn.setAttribute('aria-label', 'Свернуть');
   btn.title = 'Свернуть (Esc)';
   renderChart(CHARTS.find((c) => c.id === id));
-  requestAnimationFrame(() => Plotly.Plots.resize(document.getElementById(id)));  // ширина без полосы прокрутки страницы
 }
 
 function closeFullscreen() {
@@ -2330,6 +2332,10 @@ function closeFullscreen() {
   btn.setAttribute('aria-label', 'Открыть на весь экран');
   btn.title = 'На весь экран';
   renderChart(CHARTS.find((c) => c.id === id));
+  // Вернуть обычную ширину: размер снова берётся из панели, как у остальных графиков.
+  const el = document.getElementById(id);
+  state.syncing = true;
+  Plotly.relayout(el, { autosize: true }).finally(() => { state.syncing = false; });
   panel.scrollIntoView({ block: 'center' });
 }
 
