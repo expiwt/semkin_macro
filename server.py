@@ -26,6 +26,8 @@ SEMKIN macro — локальный сервер дашборда ранних �
             последние две недели — с сайта Мосбиржи).
   Банк России — ключевая ставка и курс доллара.
   Минфин — исполнение федерального бюджета (с 2011) и ФНБ (с 2008); SIPRI — военные расходы.
+  Другие страны — Банк Англии, Минфин Японии, Шанхайская биржа, ЕЦБ, HKMA; цены на жильё и долг
+            домохозяйств — BIS (через FRED).
 
 Только стандартная библиотека Python 3.8+, никаких зависимостей.
 
@@ -82,6 +84,35 @@ FRED_SERIES = {
     "SP500": "S&P 500, дневной",
     "NASDAQCOM": "NASDAQ Composite, дневной",
     "NASDAQ100": "NASDAQ-100, дневной (для перевода фьючерсов NASDAQ в доллары)",
+    "MORTGAGE30US": "Ставка по 30-летней фиксированной ипотеке в США, %",
+
+    # Недвижимость (BIS): цены на жильё — номинальные и реальные (с поправкой на инфляцию), индекс;
+    # долг домохозяйств — % ВВП. Есть по всем странам дашборда.
+    **{f"Q{c}N628BIS": f"Цены на жильё, {c} (BIS, номинальные)" for c in ("US", "RU", "FR", "GB", "JP", "CN", "HK")},
+    **{f"Q{c}R628BIS": f"Цены на жильё, {c} (BIS, реальные)" for c in ("US", "RU", "FR", "GB", "JP", "CN", "HK")},
+    **{f"Q{c}HAM770A": f"Долг домохозяйств, {c}, % ВВП (BIS)" for c in ("US", "RU", "FR", "GB", "JP", "CN", "HK")},
+
+    # Франция
+    "IRLTLT01FRM156N": "Франция: 10-летние гособлигации (OAT), %, помесячно",
+    "IR3TIB01FRM156N": "Франция: 3-месячная межбанковская ставка, %, помесячно",
+    "IRLTLT01DEM156N": "Германия: 10-летние гособлигации (Bund), %, помесячно",
+    "ECBDFR": "Депозитная ставка ЕЦБ, %",
+    "DEXUSEU": "Долларов за 1 евро",
+    "SPASTT01FRM661N": "Франция: цены акций (ОЭСР, 2015 = 100), помесячно",
+    "CLVMNACSCAB1GQFR": "Франция: реальный ВВП, поквартально",
+    # Великобритания
+    "DEXUSUK": "Долларов за 1 фунт",
+    "SPASTT01GBM661N": "Великобритания: цены акций (ОЭСР, 2015 = 100), помесячно",
+    "NGDPRSAXDCGBQ": "Великобритания: реальный ВВП, поквартально",
+    # Япония
+    "DEXJPUS": "Иен за 1 доллар",
+    "NIKKEI225": "Nikkei 225",
+    "IRSTCI01JPM156N": "Япония: ставка овернайт (call rate), %, помесячно",
+    # Китай
+    "DEXCHUS": "Юаней за 1 доллар",
+    "IR3TIB01CNM156N": "Китай: 3-месячная межбанковская ставка, %, помесячно",
+    # Гонконг
+    "DEXHKUS": "Гонконгских долларов за 1 доллар США",
 }
 
 # Ограничиваем одновременные запросы к одному хосту.
@@ -858,6 +889,107 @@ def fetch_sipri(_api_key):
     ]
 
 
+# --- Другие страны: центробанки и биржи ---------------------------------------------
+
+def fetch_boe(_api_key):
+    """
+    Банк Англии (база IADB): доходности гилтов (бескупонные, 5/10/20 лет) и ключевая ставка — ежедневно;
+    ипотечные ставки — помесячно. Дата в файле: '31 Jan 2026'.
+    """
+    def iadb(codes, start):
+        url = ("https://www.bankofengland.co.uk/boeapps/database/_iadb-fromshowcolumns.asp?csv.x=yes"
+               f"&Datefrom={start}&Dateto=now&SeriesCodes={','.join(codes)}&CSVF=TN&UsingCodes=Y&VPD=Y&VFD=N")
+        rows = list(csv.reader(io.StringIO(http_get(url, timeout=90, headers={"User-Agent": "Mozilla/5.0"}))))
+        out = {c: [] for c in codes}
+        for r in rows[1:]:
+            try:
+                d = dt.datetime.strptime(r[0].strip(), "%d %b %Y").date().isoformat()
+            except (ValueError, IndexError):
+                continue
+            for c, v in zip(codes, r[1:]):
+                if v.strip():
+                    out[c].append((d, float(v)))
+        return out
+
+    names = {"IUDSNZC": "Гилты 5 лет, %", "IUDMNZC": "Гилты 10 лет, %", "IUDLNZC": "Гилты 20 лет, %",
+             "IUDBEDR": "Ключевая ставка Банка Англии, %",
+             "IUMBV34": "Ипотека: 2-летняя фиксированная ставка (LTV 75%), %",
+             "CFMHSDE": "Ипотека: эффективная ставка по новым кредитам, %"}
+    data = iadb(["IUDSNZC", "IUDMNZC", "IUDLNZC", "IUDBEDR"], "01/Jan/1975")
+    data.update(iadb(["IUMBV34", "CFMHSDE"], "01/Jan/1995"))
+    return [make_series(f"BOE_{c}", names[c], "Банк Англии", pts) for c, pts in data.items()]
+
+
+def fetch_jgb(_api_key):
+    """Минфин Японии: доходности гособлигаций JGB по срокам, ежедневно с 1974 г. (архив + текущий месяц)."""
+    base = "https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate"
+    terms = {"2Y": "JGB_2Y", "10Y": "JGB_10Y", "30Y": "JGB_30Y"}
+    points = {sid: {} for sid in terms.values()}
+    for url in (f"{base}/historical/jgbcme_all.csv", f"{base}/jgbcme.csv"):
+        text = http_get(url, timeout=90, raw=True).decode("cp932", errors="replace")  # файл в японской кодировке
+        rows = list(csv.reader(io.StringIO(text)))
+        hdr = next((r for r in rows if r and r[0].strip() == "Date"), None)
+        if not hdr:
+            continue
+        idx = {t: hdr.index(t) for t in terms if t in hdr}
+        for r in rows:
+            if not r or not re.fullmatch(r"\d{4}/\d{1,2}/\d{1,2}", r[0].strip()):
+                continue
+            y, m, d = (int(x) for x in r[0].strip().split("/"))
+            for t, i in idx.items():
+                if i < len(r) and r[i].strip() not in ("", "-"):
+                    points[terms[t]][f"{y:04d}-{m:02d}-{d:02d}"] = float(r[i])
+    names = {"JGB_2Y": "JGB 2 года, %", "JGB_10Y": "JGB 10 лет, %", "JGB_30Y": "JGB 30 лет, %"}
+    return [make_series(sid, names[sid], "Минфин Японии", pts.items()) for sid, pts in points.items()]
+
+
+def fetch_sse(_api_key):
+    """Шанхайская биржа: индекс SSE Composite, ежедневно с декабря 1990 г. (вся история одним запросом)."""
+    data = json.loads(http_get("http://yunhq.sse.com.cn:32041/v1/sh1/dayk/000001?begin=-20000&end=-1&period=day", timeout=60))
+    pts = [(f"{str(k[0])[:4]}-{str(k[0])[4:6]}-{str(k[0])[6:]}", float(k[4])) for k in data["kline"]]
+    return [make_series("SSE_COMP", "SSE Composite (Шанхай)", "Шанхайская биржа", pts)]
+
+
+def fetch_ecb_mir(_api_key):
+    """ЕЦБ: средняя ставка по новым ипотечным кредитам во Франции, помесячно с 2003 г."""
+    url = "https://data-api.ecb.europa.eu/service/data/MIR/M.FR.B.A2C.A.R.A.2250.EUR.N?format=csvdata"
+    rows = csv.DictReader(io.StringIO(http_get(url, timeout=120)))
+    pts = [(r["TIME_PERIOD"] + "-01", float(r["OBS_VALUE"])) for r in rows if r.get("OBS_VALUE")]
+    return [make_series("FR_MORTGAGE", "Франция: ставка по новым ипотечным кредитам, %", "ЕЦБ", pts)]
+
+
+def fetch_hkma(_api_key, prev):
+    """
+    Денежное управление Гонконга (HKMA): HIBOR овернайт и на 1 месяц, базовая ставка — ежедневно.
+    Ипотека в Гонконге в основном привязана к HIBOR. Записи идут от новых к старым, по 1000 за запрос.
+    Сервер нестабилен и ограничивает частые запросы, поэтому загрузка инкрементальная: докачиваем,
+    пока не дойдём до уже известных дат, а при сбое на дальних страницах сохраняем то, что успели.
+    """
+    base = "https://api.hkma.gov.hk/public/market-data-and-statistics/daily-monetary-statistics/daily-figures-interbank-liquidity"
+    fields = {"hibor_overnight": "HK_HIBOR_ON", "hibor_fixing_1m": "HK_HIBOR_1M", "disc_win_base_rate": "HK_BASE"}
+    known = last_date(prev, "HK_HIBOR_1M", "0000")
+    points = {sid: {} for sid in fields.values()}
+    offset = 0
+    while offset < 20000:
+        try:
+            res = json.loads(http_get(f"{base}?pagesize=1000&offset={offset}", timeout=30))["result"]
+        except (urllib.error.URLError, OSError, ValueError, KeyError):
+            if offset == 0:
+                raise             # первая страница не пришла — источник недоступен
+            break                 # дальние страницы — докачаем в следующий раз
+        recs = res.get("records", [])
+        for r in recs:
+            for f, sid in fields.items():
+                if r.get(f) not in (None, ""):
+                    points[sid][r["end_of_date"]] = float(r[f])
+        if len(recs) < 1000 or (recs and recs[-1]["end_of_date"] <= known):
+            break
+        offset += 1000
+        time.sleep(1)             # вежливо к серверу
+    names = {"HK_HIBOR_ON": "HIBOR овернайт, %", "HK_HIBOR_1M": "HIBOR 1 месяц, %", "HK_BASE": "Базовая ставка HKMA, %"}
+    return [make_series(sid, names[sid], "HKMA", merge_prev(prev, sid, pts)) for sid, pts in points.items()]
+
+
 # ---------------------------------------------------------------------------
 # Кэш источников
 # ---------------------------------------------------------------------------
@@ -879,7 +1011,18 @@ SOURCES.update({
     "minfin_budget": (fetch_minfin_budget, 24 * HOUR, False),
     "minfin_nwf": (fetch_minfin_nwf, 24 * HOUR, False),
     "sipri": (fetch_sipri, 30 * 24 * HOUR, False),
+    "boe": (fetch_boe, 12 * HOUR, False),
+    "mof_jgb": (fetch_jgb, 12 * HOUR, False),
+    "sse": (fetch_sse, 6 * HOUR, False),
+    "ecb_mir": (fetch_ecb_mir, 24 * HOUR, False),
+    "hkma": (fetch_hkma, 12 * HOUR, True),
 })
+
+
+# Недавние сбои источников: {ключ: (время, текст ошибки)}. Упавший источник не опрашиваем
+# 30 минут, чтобы каждая загрузка страницы не ждала его таймаута.
+_failures = {}
+FAILURE_PAUSE = 30 * 60
 
 
 def load_source(key, api_key, force=False):
@@ -892,6 +1035,11 @@ def load_source(key, api_key, force=False):
     cached = read_json(path)
     if cached and not force and time.time() - cached["fetched_at"] < ttl:
         return dict(cached, cache="hit")
+    failed_at, failed_msg = _failures.get(key, (0, ""))
+    if not force and time.time() - failed_at < FAILURE_PAUSE:
+        if cached:
+            return dict(cached, cache="stale", error=failed_msg)
+        return {"key": key, "fetched_at": None, "series": [], "cache": "error", "error": failed_msg}
     try:
         if incremental:
             prev = {s["id"]: s for s in (cached or {}).get("series", [])}
@@ -900,9 +1048,11 @@ def load_source(key, api_key, force=False):
             series = fetch(api_key)
         payload = {"key": key, "fetched_at": time.time(), "series": series}
         write_json(path, payload)
+        _failures.pop(key, None)
         return dict(payload, cache="miss")
     except (urllib.error.URLError, OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile,
             ElementTree.ParseError) as exc:
+        _failures[key] = (time.time(), str(exc))
         if cached:
             return dict(cached, cache="stale", error=str(exc))
         return {"key": key, "fetched_at": None, "series": [], "cache": "error", "error": str(exc)}

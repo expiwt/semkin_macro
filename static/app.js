@@ -711,6 +711,10 @@ function computeIndicators() {
     accImoexL: futoiAccounts(Object.keys(FUT_IMOEX), 'NL'),
     accImoexS: futoiAccounts(Object.keys(FUT_IMOEX), 'NS'),
 
+    // Другие страны и разделы «Недвижимость» США/России
+    c: Object.fromEntries(COUNTRIES.map((cfg) => [cfg.tab, computeCountry(cfg)])),
+    re: { us: computeCountry(REAL_ESTATE.us), ru: computeCountry(REAL_ESTATE.ru) },
+
     budRev12, budOil12, budBal12,
     budNonoil12: budget12('BUD_NONOIL'),
     budExp12: budget12('BUD_EXP'),
@@ -815,16 +819,16 @@ function extremesCard(opts, s, { high, low }, pctSeries = s) {
   });
 }
 
-function curveCard(label, s, explain, source) {
+function curveCard(label, s, explain, source, chart) {
   const l = last(s);
   if (!l) return '';
   return card({
-    label, value: fmtNum(l.value, 0, true), unit: 'б.п.', zone: zoneOf(CURVE_ZONES, l.value), explain, source,
+    label, value: fmtNum(l.value, 0, true), unit: 'б.п.', zone: zoneOf(CURVE_ZONES, l.value), explain, source, chart,
     detail: `на ${fmtDate(l.date)} · мин. за 2 года: ${fmtNum(minSince(s, 730), 0, true)} б.п.`,
   });
 }
 
-function inversionCard(inv, explain, source) {
+function inversionCard(inv, explain, source, chart) {
   if (!inv) return '';
   // Функции, а не готовые объекты: поля inv различаются в зависимости от kind.
   const variants = {
@@ -841,14 +845,14 @@ function inversionCard(inv, explain, source) {
       detail: inv.lastInverted ? `последний день инверсии: ${fmtDate(inv.lastInverted)}` : '',
     }),
   };
-  return card({ label: 'Флаг инверсии', explain, source, ...variants[inv.kind]() });
+  return card({ label: 'Флаг инверсии', explain, source, chart, ...variants[inv.kind]() });
 }
 
-function indexCard(label, s, dd, explain, source, digits = 0) {
+function indexCard(label, s, dd, explain, source, digits = 0, chart) {
   const l = last(s), d = last(dd);
   if (!l) return '';
   return card({
-    label, value: fmtNum(l.value, digits), explain: `${explain} ${EXPLAIN.drawdown}`, source,
+    label, value: fmtNum(l.value, digits), explain: `${explain} ${EXPLAIN.drawdown}`, source, chart,
     zone: zoneOf(DRAWDOWN_ZONES, d.value),
     detail: `на ${fmtDate(l.date)} · от максимума: ${fmtNum(d.value, 1)}%`,
   });
@@ -1127,7 +1131,12 @@ function ruCards(I) {
 }
 
 function renderCards(tab) {
-  const groups = tab === 'us' ? usCards(state.ind) : ruCards(state.ind);
+  const I = state.ind;
+  const groups = tab === 'us'
+    ? [...usCards(I), ['Недвижимость', realEstateCards(I.re.us, REAL_ESTATE.us, 'us')]]
+    : tab === 'ru'
+      ? [...ruCards(I), ['Валюта и недвижимость', [fxCard(I.re.ru.fx, REAL_ESTATE.ru.fx, 'ru-fx'), ...realEstateCards(I.re.ru, REAL_ESTATE.ru, 'ru')]]]
+      : countryCards(COUNTRY[tab]);
   $(`#cards-${tab}`).innerHTML = groups
     .map(([title, cards]) => [title, cards.filter(Boolean)])
     .filter(([, cards]) => cards.length)
@@ -1176,7 +1185,7 @@ function bars(s, name, colorVar, hover, extra = {}) {
 
 /** Серые вертикальные полосы рецессий (США — NBER, Россия — периоды спада ВВП). */
 function recessionShapes(tab) {
-  const periods = tab === 'ru' ? RU_CRISES : state.ind.recessions;
+  const periods = tab === 'ru' ? RU_CRISES : tab === 'us' ? state.ind.recessions : ((state.ind.c[tab] || {}).bands || []);
   return periods.map(([x0, x1]) => ({
     type: 'rect', xref: 'x', yref: 'paper', x0, x1, y0: 0, y1: 1,
     fillcolor: css('--recession'), line: { width: 0 }, layer: 'below', name: 'recession',
@@ -1220,9 +1229,9 @@ function overlayTrace(tab) {
   const key = state.overlay[tab];
   if (!key) return null;
   const I = state.ind;
-  const [s, name] = {
-    sp500: [I.sp500, 'S&P 500'], nasdaq: [I.nasdaq, 'NASDAQ'], imoex: [I.imoex, 'IMOEX'], rts: [I.rts, 'РТС'],
-  }[key];
+  const [s, name] = key === 'eq'
+    ? [I.c[tab].equity, COUNTRY[tab].equity.short]
+    : { sp500: [I.sp500, 'S&P 500'], nasdaq: [I.nasdaq, 'NASDAQ'], imoex: [I.imoex, 'IMOEX'], rts: [I.rts, 'РТС'] }[key];
   return line(s, `${name} (правая шкала)`, '--overlay', '%{y:,.0f}', {
     gap: 40, yaxis: 'y2', meta: 'overlay', line: { color: css('--overlay'), width: 1.2, dash: 'dot' },
   });
@@ -1267,10 +1276,13 @@ const PLOT_CONFIG = { responsive: true, displaylogo: false, locale: 'ru', modeBa
  * данных — своя трасса; возвращает массив трасс.
  */
 function fillBelowZero(s, colorVar, group) {
+  // Порог разрыва — по типичному шагу ряда (дневные, месячные, квартальные данные).
+  const steps = s.dates.slice(1).map((d, i) => daysBetween(s.dates[i], d)).sort((a, b) => a - b);
+  const gap = Math.max(20, 2.5 * (steps[Math.floor(steps.length / 2)] || 1));
   const segments = [];
   let cur = null;
   s.dates.forEach((d, i) => {
-    if (!cur || daysBetween(s.dates[i - 1], d) > 20) segments.push(cur = { x: [], y: [] });
+    if (!cur || daysBetween(s.dates[i - 1], d) > gap) segments.push(cur = { x: [], y: [] });
     cur.x.push(d);
     cur.y.push(Math.min(s.values[i], 0));
   });
@@ -1737,6 +1749,446 @@ const CHARTS = [
 ];
 
 // ---------------------------------------------------------------------------
+// Другие страны и недвижимость: общий шаблон вкладки
+// ---------------------------------------------------------------------------
+
+/*
+ * Каждая страна описана конфигурацией COUNTRIES: какие ряды — ставки, длинные доходности,
+ * наклоны кривой, индекс акций, курс, недвижимость. По ней строятся графики (countryCharts),
+ * карточки (countryCards) и расчёты (computeCountry). Раздел «Недвижимость» тем же
+ * шаблоном добавляется и во вкладки США и России (REAL_ESTATE).
+ */
+
+const BIS_SRC = (c) => [fred(`Q${c}N628BIS`, 'BIS: цены на жильё (FRED)'), fred(`Q${c}R628BIS`, 'реальные'),
+  ['BIS Residential property prices', 'https://data.bis.org/topics/RPP']];
+const BIS_DEBT_SRC = (c) => [fred(`Q${c}HAM770A`, 'BIS: долг домохозяйств, % ВВП (FRED)'),
+  ['BIS Total credit', 'https://data.bis.org/topics/TOTAL_CREDIT']];
+
+Object.assign(SRC, {
+  boe: [['Банк Англии: база данных IADB', 'https://www.bankofengland.co.uk/boeapps/database/']],
+  jgb: [['Минфин Японии: доходности JGB', 'https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/index.htm']],
+  sse: [['Шанхайская биржа: SSE Composite', 'https://english.sse.com.cn/markets/indices/overview/']],
+  ecbMir: [['ЕЦБ: ставки по новым кредитам (MIR)', 'https://data.ecb.europa.eu/data/datasets/MIR']],
+  hkma: [['HKMA: денежная статистика', 'https://www.hkma.gov.hk/eng/data-publications-and-research/data-and-statistics/']],
+  esri: [['Кабинет министров Японии (ESRI): даты деловых циклов', 'https://www.esri.cao.go.jp/en/stat/di/di-e.html']],
+});
+
+// Официальные даты спадов Японии (от пика до дна, ESRI). Последние годы могут быть ещё не датированы.
+const JP_CYCLES = [
+  ['1973-11-01', '1975-03-01'], ['1977-01-01', '1977-10-01'], ['1980-02-01', '1983-02-01'],
+  ['1985-06-01', '1986-11-01'], ['1991-02-01', '1993-10-01'], ['1997-05-01', '1999-01-01'],
+  ['2000-11-01', '2002-01-01'], ['2008-02-01', '2009-03-01'], ['2012-03-01', '2012-11-01'],
+  ['2018-10-01', '2020-05-01'],
+];
+
+/** Технические рецессии: два и более квартала подряд падения реального ВВП. */
+function technicalRecessions(gdp) {
+  const periods = [];
+  let start = null, run = 0;
+  for (let i = 1; i < gdp.values.length; i++) {
+    if (gdp.values[i] < gdp.values[i - 1]) {
+      if (!run) start = gdp.dates[i];
+      run++;
+    } else {
+      if (run >= 2) periods.push([start, gdp.dates[i]]);
+      run = 0;
+    }
+  }
+  if (run >= 2) periods.push([start, addMonths(gdp.dates[gdp.dates.length - 1], 3)]);
+  return periods;
+}
+
+const GDP_BANDS_EXPLAIN = 'Серые полосы — технические рецессии: два и более квартала подряд падения реального ВВП (официальной датировки, как NBER в США, нет).';
+
+// Справки о кризисах на рынке жилья (общеизвестные события; точные цифры — на графике BIS).
+const HOUSING_STORY = {
+  us: 'Крупнейший кризис — 2006–2012 годы: после бума ипотеки для заёмщиков с плохой кредитной историей цены на жильё упали примерно на четверть от пика 2006 года, волна дефолтов обрушила банки и вызвала мировой кризис 2008 года. После 2020 года цены снова резко выросли на дешёвой ипотеке; с 2022 года ставка по 30-летней ипотеке поднялась примерно до 7%, и сделок стало заметно меньше.',
+  ru: 'В 2008–2009 годах цены на жильё снижались — в долларах сильнее, чем в рублях. В 2014–2016 годах после девальвации рубля реальные цены (с поправкой на инфляцию) падали несколько лет. С 2020 года рынок рос на льготной ипотеке с государственной субсидией ставки; в июле 2024 года массовая льготная программа завершилась, и при высокой ключевой ставке рыночная ипотека стала очень дорогой — спрос сместился на семейную ипотеку.',
+  fr: 'В начале 1990-х после спекулятивного роста цены на жильё во Франции, особенно в Париже, снижались несколько лет подряд — в Париже примерно на треть. Затем был долгий рост до 2008 года, небольшая коррекция в 2008–2009 годах и снова рост до 2022 года. С 2022 года после повышения ставок ЕЦБ ипотека подорожала примерно с 1% до 4%, и цены впервые за долгое время пошли вниз.',
+  uk: 'В 1989–1995 годах после бума цены упали примерно на 20% в номинале и сильнее в реальном выражении; сотни тысяч семей оказались должны банку больше, чем стоил их дом. В 2007–2009 годах падение тоже было около 20%. Осенью 2022 года после «мини-бюджета» правительства ставки по ипотеке резко выросли и охладили рынок. Большинство британских ипотек — с фиксированной ставкой на 2–5 лет, поэтому рост ставок доходит до заёмщиков с задержкой, при перекредитовании.',
+  jp: 'Классический пример лопнувшего пузыря: в конце 1980-х цены на землю и жильё выросли в разы, а после 1991 года падали около 15 лет подряд — в крупных городах цены на землю снизились в несколько раз. Банки годами сидели на плохих кредитах, экономика пережила «потерянное десятилетие» с дефляцией. В 2010–2020-х на сверхнизких ставках цены в Токио снова выросли; с 2024 года Банк Японии начал повышать ставку.',
+  cn: 'Недвижимость — крупнейшая отрасль Китая: вместе со смежными отраслями, по оценкам, около четверти ВВП. В 2020 году власти ограничили долги застройщиков («три красные линии»), в 2021 году объявил дефолт Evergrande, затем Country Garden и другие. Продажи новых квартир и цены снижаются с 2021–2022 годов, часть оплаченных квартир не достроена. Власти снижали ставки и первоначальные взносы, но спрос восстанавливается медленно.',
+  hk: 'Один из самых дорогих и волатильных рынков жилья в мире: после азиатского кризиса 1997 года и эпидемии SARS цены к 2003 году упали примерно на две трети. Затем был долгий рост почти в шесть раз до 2021 года. С 2021–2022 годов цены снижаются: ставки HIBOR выросли вслед за ставкой ФРС (гонконгский доллар привязан к доллару США), часть жителей уехала. Ипотека здесь в основном плавающая, привязанная к HIBOR, поэтому рост ставок быстро бьёт по заёмщикам.',
+};
+
+/*
+ * Конфигурация стран. Поля:
+ *   rates   — линии на графике ставок: { id, name, color, step? (ступенчатая — ключевая ставка), src }
+ *   curves  — наклоны кривой: { a, b, name, color } (a − b, б.п.; b берётся «на дату»)
+ *   equity  — индекс акций { id, name, log?, src, monthly? }
+ *   fx      — курс { id, invert? (ряд — долларов за единицу валюты), name, unit, band? (коридор привязки) }
+ *   bis     — код страны в рядах BIS; mortgage — ипотечные ставки; bands — полосы рецессий
+ */
+const COUNTRIES = [
+  {
+    tab: 'fr', name: 'Франция', cur: 'евро',
+    rates: [
+      { id: 'ECBDFR', name: 'Депозитная ставка ЕЦБ', color: '--panic', step: true, src: [fred('ECBDFR')] },
+      { id: 'IR3TIB01FRM156N', name: '3 месяца (межбанк)', color: '--s-3m', src: [fred('IR3TIB01FRM156N')] },
+      { id: 'IRLTLT01FRM156N', name: '10-летние OAT', color: '--s-10y', src: [fred('IRLTLT01FRM156N')] },
+      { id: 'IRLTLT01DEM156N', name: '10-летние Bund (Германия)', color: '--s-30y', src: [fred('IRLTLT01DEM156N')] },
+    ],
+    curves: [{ a: 'IRLTLT01FRM156N', b: 'IR3TIB01FRM156N', name: '10 лет − 3 месяца', color: '--s-3m' }],
+    risk: { a: 'IRLTLT01FRM156N', b: 'IRLTLT01DEM156N', name: 'OAT − Bund' },
+    equity: { id: 'SPASTT01FRM661N', name: 'Акции Франции (индекс ОЭСР, 2015 = 100)', short: 'Акции Франции', src: [fred('SPASTT01FRM661N')], monthly: true },
+    fx: { id: 'DEXUSEU', invert: true, name: 'Евро за 1 доллар', unit: '€', src: [fred('DEXUSEU')] },
+    bis: 'FR',
+    mortgage: [{ id: 'FR_MORTGAGE', name: 'Ставка по новой ипотеке', color: '--s-2y', src: SRC.ecbMir }],
+    bands: { kind: 'gdp', id: 'CLVMNACSCAB1GQFR', src: [fred('CLVMNACSCAB1GQFR', 'реальный ВВП Франции (FRED)')] },
+  },
+  {
+    tab: 'uk', name: 'Великобритания', cur: 'фунт',
+    rates: [
+      { id: 'BOE_IUDBEDR', name: 'Ключевая ставка Банка Англии', color: '--panic', step: true, src: SRC.boe },
+      { id: 'BOE_IUDSNZC', name: 'Гилты 5 лет', color: '--s-2y', src: SRC.boe },
+      { id: 'BOE_IUDMNZC', name: 'Гилты 10 лет', color: '--s-10y', src: SRC.boe },
+      { id: 'BOE_IUDLNZC', name: 'Гилты 20 лет', color: '--s-30y', src: SRC.boe },
+    ],
+    curves: [
+      { a: 'BOE_IUDMNZC', b: 'BOE_IUDBEDR', name: '10 лет − ключевая ставка', color: '--panic' },
+      { a: 'BOE_IUDMNZC', b: 'BOE_IUDSNZC', name: '10 лет − 5 лет', color: '--s-2y' },
+    ],
+    equity: { id: 'SPASTT01GBM661N', name: 'Акции Великобритании (индекс ОЭСР, 2015 = 100)', short: 'Акции Великобритании', src: [fred('SPASTT01GBM661N')], monthly: true },
+    fx: { id: 'DEXUSUK', invert: true, name: 'Фунтов за 1 доллар', unit: '£', src: [fred('DEXUSUK')] },
+    bis: 'GB',
+    mortgage: [
+      { id: 'BOE_IUMBV34', name: '2-летняя фиксированная (LTV 75%)', color: '--s-2y', src: SRC.boe },
+      { id: 'BOE_CFMHSDE', name: 'Эффективная ставка по новой ипотеке', color: '--s-10y', src: SRC.boe },
+    ],
+    bands: { kind: 'gdp', id: 'NGDPRSAXDCGBQ', src: [fred('NGDPRSAXDCGBQ', 'реальный ВВП Великобритании (FRED)')] },
+  },
+  {
+    tab: 'jp', name: 'Япония', cur: 'иена',
+    rates: [
+      { id: 'IRSTCI01JPM156N', name: 'Ставка овернайт (ориентир Банка Японии)', color: '--panic', step: true, src: [fred('IRSTCI01JPM156N')] },
+      { id: 'JGB_2Y', name: 'JGB 2 года', color: '--s-2y', src: SRC.jgb },
+      { id: 'JGB_10Y', name: 'JGB 10 лет', color: '--s-10y', src: SRC.jgb },
+      { id: 'JGB_30Y', name: 'JGB 30 лет', color: '--s-30y', src: SRC.jgb },
+    ],
+    curves: [
+      { a: 'JGB_10Y', b: 'JGB_2Y', name: '10 лет − 2 года', color: '--s-2y' },
+      { a: 'JGB_10Y', b: 'IRSTCI01JPM156N', name: '10 лет − ставка овернайт', color: '--panic' },
+    ],
+    equity: { id: 'NIKKEI225', name: 'Nikkei 225', short: 'Nikkei 225', src: [fred('NIKKEI225')], log: true },
+    fx: { id: 'DEXJPUS', name: 'Иен за 1 доллар', unit: '¥', src: [fred('DEXJPUS')] },
+    bis: 'JP',
+    bands: { kind: 'fixed', periods: JP_CYCLES, legend: 'Спады (ESRI)', src: SRC.esri,
+      explain: 'Серые полосы — официальные спады экономики Японии по датировке Кабинета министров (ESRI), от пика до дна делового цикла. Последние годы могут быть ещё не датированы.' },
+  },
+  {
+    tab: 'cn', name: 'Китай', cur: 'юань',
+    rates: [{ id: 'IR3TIB01CNM156N', name: '3 месяца (межбанк)', color: '--s-3m', src: [fred('IR3TIB01CNM156N')] }],
+    curves: [],
+    equity: { id: 'SSE_COMP', name: 'SSE Composite (Шанхай)', short: 'SSE Composite', src: SRC.sse, log: true },
+    fx: { id: 'DEXCHUS', name: 'Юаней за 1 доллар', unit: '¥', src: [fred('DEXCHUS')] },
+    bis: 'CN',
+    bands: { kind: 'none', explain: 'Реальный ВВП Китая в официальной статистике годами не снижался (даже в 2020 году был небольшой рост), поэтому полос рецессий нет; признаки спада видны по ценам на жильё, индексу акций и юаню.' },
+    note: 'Бесплатных ежедневных данных по доходностям китайских гособлигаций в открытом доступе не нашлось, поэтому кривой доходности здесь нет.',
+  },
+  {
+    tab: 'hk', name: 'Гонконг', cur: 'гонконгский доллар',
+    rates: [
+      { id: 'HK_BASE', name: 'Базовая ставка HKMA', color: '--panic', step: true, src: SRC.hkma },
+      { id: 'HK_HIBOR_ON', name: 'HIBOR овернайт', color: '--s-3m', src: SRC.hkma },
+      { id: 'HK_HIBOR_1M', name: 'HIBOR 1 месяц', color: '--s-10y', src: SRC.hkma },
+    ],
+    curves: [],
+    fx: { id: 'DEXHKUS', name: 'Гонконгских долларов за 1 доллар США', unit: 'HK$', src: [fred('DEXHKUS')], band: [7.75, 7.85] },
+    bis: 'HK',
+    mortgage: [{ id: 'HK_HIBOR_1M', name: 'HIBOR 1 месяц — база для ипотеки', color: '--s-2y', src: SRC.hkma }],
+    bands: { kind: 'none', explain: 'Бесплатного квартального ряда ВВП Гонконга в доступных источниках нет, поэтому полос рецессий нет.' },
+    note: 'Бесплатного источника индекса Hang Seng не нашлось (биржевые сайты закрыты от автоматической загрузки), поэтому графика акций здесь нет.',
+  },
+];
+
+// Недвижимость для вкладок США и России — тем же шаблоном.
+const REAL_ESTATE = {
+  us: { bis: 'US', mortgage: [{ id: 'MORTGAGE30US', name: '30-летняя фиксированная ипотека', color: '--s-2y', src: [fred('MORTGAGE30US')] }] },
+  ru: { bis: 'RU', fx: { id: 'CBR_USDRUB', name: 'Рублей за 1 доллар', unit: '₽', src: [['Банк России: курс доллара', 'https://www.cbr.ru/currency_base/dynamics/']] } },
+};
+
+const COUNTRY = Object.fromEntries(COUNTRIES.map((c) => [c.tab, c]));
+
+// Полосы, наложение индекса и привязка карточек к графикам — для каждой страны.
+for (const c of COUNTRIES) {
+  const b = c.bands;
+  TAB_BANDS[c.tab] = {
+    legend: b.legend || 'Рецессии', explain: `bands_${c.tab}`,
+    source: b.src || [['полос нет']],
+  };
+  EXPLAIN[`bands_${c.tab}`] = b.explain || GDP_BANDS_EXPLAIN;
+  OVERLAYS[c.tab] = [['', 'нет'], ...(c.equity ? [['eq', c.equity.short]] : [])];
+}
+OVERLAYS.ru = [...OVERLAYS.ru];
+
+// Зона цен на жильё — по падению реальных цен от их исторического пика.
+const RE_ZONES = [
+  { max: -30, label: 'Ниже пика на 30% и больше', color: '--panic' },
+  { max: -15, label: 'Ниже пика на 15–30%', color: '--stress' },
+  { max: -5, label: 'Ниже пика на 5–15%', color: '--caution' },
+  { max: Infinity, label: 'Около пика', color: '--calm' },
+];
+
+/** Расчёты по стране (или по разделу «Недвижимость» США/России). */
+function computeCountry(c) {
+  const get = (id) => series(id);
+  const out = {};
+  for (const r of c.rates || []) out[r.id] = get(r.id);
+  out.curves = (c.curves || []).map((cv) => asof(get(cv.a), get(cv.b), (x, y) => Math.round((x - y) * 100)));
+  if (c.risk) out.risk = asof(get(c.risk.a), get(c.risk.b), (x, y) => Math.round((x - y) * 100));
+  if (c.equity) {
+    out.equity = get(c.equity.id);
+    out.equityDd = drawdown(out.equity);
+  }
+  if (c.fx) out.fx = c.fx.invert ? mapValues(get(c.fx.id), (v) => 1 / v) : get(c.fx.id);
+  if (c.bis) {
+    out.houseNom = get(`Q${c.bis}N628BIS`);
+    out.houseReal = get(`Q${c.bis}R628BIS`);
+    out.houseNomYoY = yearOverYear(out.houseNom);
+    out.houseRealYoY = yearOverYear(out.houseReal);
+    out.houseRealDd = drawdown(out.houseReal);
+    out.hhDebt = get(`Q${c.bis}HAM770A`);
+  }
+  for (const m of c.mortgage || []) out[m.id] = get(m.id);
+  if (c.bands) {
+    out.bands = c.bands.kind === 'gdp' ? technicalRecessions(get(c.bands.id))
+      : c.bands.kind === 'fixed' ? c.bands.periods : [];
+  }
+  return out;
+}
+
+/** Графики раздела «Недвижимость» (общие для всех стран). */
+function realEstateCharts(tab, cfg, name, cid) {
+  const D = (I) => (COUNTRY[tab] ? I.c[tab] : I.re[tab]);
+  const charts = [{
+    tab, id: `${cid}-house`, section: 'Недвижимость', source: BIS_SRC(cfg.bis),
+    title: `Цены на жильё: ${name} (BIS, индекс 2010 = 100)`,
+    intro: 'Номинальные цены — как в объявлениях; реальные — с поправкой на инфляцию, то есть сколько жильё стоит в «сегодняшних» деньгах. Поквартально, данные Банка международных расчётов.',
+    story: HOUSING_STORY[tab],
+    build: (I, t) => ({
+      data: [
+        line(D(I).houseNom, 'Номинальные', '--s-10y', '%{y:.1f}', { gap: 100 }),
+        line(D(I).houseReal, 'Реальные (с поправкой на инфляцию)', '--s-3m', '%{y:.1f}', { gap: 100 }),
+      ],
+      layout: baseLayout(t),
+      explain: [
+        ['Номинальные', '--s-10y', 'Индекс цен на жильё в местной валюте (2010 год = 100).'],
+        ['Реальные', '--s-3m', 'Тот же индекс с поправкой на инфляцию: падение реальных цен при росте номинальных значит, что жильё дешевеет относительно остальных товаров.'],
+      ],
+    }),
+  }, {
+    tab, id: `${cid}-houseyoy`, source: BIS_SRC(cfg.bis), title: `Цены на жильё: изменение за год, %`,
+    intro: 'Насколько цены выросли или упали за последние 12 месяцев. Уход реальных цен ниже нуля на несколько кварталов подряд — типичная картина охлаждения или кризиса рынка жилья.',
+    includeZero: true,
+    build: (I, t) => ({
+      data: [
+        ...fillBelowZero(D(I).houseRealYoY, '--panic', 'ryoy'),
+        line(D(I).houseNomYoY, 'Номинальные', '--s-10y', '%{y:+.1f}%', { gap: 100 }),
+        line(D(I).houseRealYoY, 'Реальные', '--s-3m', '%{y:+.1f}%', { gap: 100, legendgroup: 'ryoy' }),
+      ],
+      layout: baseLayout(t, { unit: '%', zeroLine: true }),
+      explain: [['Изменение за год', '--muted', 'Темп роста цен за 12 месяцев; заливка — периоды, когда реальные цены падали.']],
+    }),
+  }, {
+    tab, id: `${cid}-hhdebt`, source: BIS_DEBT_SRC(cfg.bis), title: 'Долг домохозяйств, % ВВП (BIS)',
+    intro: 'Все кредиты населения — в основном ипотека — в процентах от ВВП. Быстрый рост долга вместе с ценами на жильё — главный признак кредитного пузыря; после кризисов долг обычно годами сокращается.',
+    build: (I, t) => ({
+      data: [line(D(I).hhDebt, 'Долг домохозяйств', '--s-5y', '%{y:.1f}% ВВП', { gap: 100 })],
+      layout: baseLayout(t, { unit: '%' }),
+      explain: [['Долг домохозяйств', '--s-5y', 'Кредиты населения и некоммерческих организаций, обслуживающих домохозяйства, в % ВВП (BIS, с поправкой на разрывы в статистике).']],
+    }),
+  }];
+  if (cfg.mortgage && cfg.mortgage.length) {
+    charts.push({
+      tab, id: `${cid}-mortgage`, source: cfg.mortgage.flatMap((m) => m.src), title: 'Ставки по ипотеке, %',
+      intro: tab === 'hk'
+        ? 'В Гонконге ипотека в основном плавающая и привязана к HIBOR, поэтому именно HIBOR определяет платежи заёмщиков.'
+        : 'Чем выше ставка, тем меньше покупатели могут занять и тем сильнее давление на цены жилья.',
+      build: (I, t) => ({
+        data: cfg.mortgage.map((m) => line(D(I)[m.id], m.name, m.color, '%{y:.2f}%', { gap: 45 })),
+        layout: baseLayout(t, { unit: '%' }),
+        explain: cfg.mortgage.map((m) => [m.name, m.color, 'Средняя ставка по ипотечным кредитам.']),
+      }),
+    });
+  }
+  return charts;
+}
+
+/** Все графики вкладки страны. */
+function countryCharts(c) {
+  const t = c.tab;
+  const charts = [{
+    tab: t, id: `${t}-rates`, section: 'Ставки и кривая доходности', source: c.rates.flatMap((r) => r.src),
+    title: `Ставки: ${c.name}`,
+    intro: c.curves.length || c.risk
+      ? 'Ключевая ставка центробанка и доходности гособлигаций. Когда короткие ставки поднимаются выше длинных, рынок закладывает будущее снижение ставок — обычно из-за ожидаемого замедления.'
+      : 'Ставки денежного рынка — цена коротких денег в экономике.' + (c.note ? ` ${c.note}` : ''),
+    build: (I, tb) => ({
+      data: c.rates.map((r) => line(I.c[t][r.id], r.name, r.color, '%{y:.2f}%',
+        r.step ? { gap: 45, line: { color: css(r.color), width: 2.2, shape: 'hv' } } : { gap: 45 })),
+      layout: baseLayout(tb, { unit: '%' }),
+      explain: c.rates.map((r) => [r.name, r.color, r.step ? 'Ставка центробанка — главный инструмент денежной политики.' : 'Рыночная доходность.']),
+    }),
+  }];
+  if (c.curves.length) {
+    charts.push({
+      tab: t, id: `${t}-curve`, source: c.rates.flatMap((r) => r.src), title: 'Наклон кривой доходности, б.п.',
+      intro: 'Разница между длинными и короткими ставками. Ниже нуля — инверсия: рынок ждёт снижения ставок, что исторически часто предшествовало рецессиям.',
+      includeZero: true,
+      build: (I, tb) => ({
+        data: c.curves.flatMap((cv, k) => [
+          ...fillBelowZero(I.c[t].curves[k], cv.color, `cv${k}`),
+          line(I.c[t].curves[k], cv.name, cv.color, '%{y:+.0f} б.п.', { gap: 45, legendgroup: `cv${k}` }),
+        ]),
+        layout: baseLayout(tb, { zeroLine: true }),
+        explain: c.curves.map((cv) => [cv.name, cv.color, 'Ниже нуля — инверсия кривой.']),
+      }),
+    });
+  }
+  if (c.risk) {
+    charts.push({
+      tab: t, id: `${t}-risk`, source: [fred(c.risk.a), fred(c.risk.b)], title: 'Спред OAT − Bund: премия за риск Франции, б.п.',
+      intro: 'Насколько Франция платит по 10-летнему долгу больше Германии. Рост спреда — сигнал, что инвесторы сомневаются в бюджете Франции или в устойчивости еврозоны (как в 2011–2012 годах).',
+      build: (I, tb) => ({
+        data: [line(I.c[t].risk, c.risk.name, '--s-5y', '%{y:+.0f} б.п.', { gap: 45 })],
+        layout: baseLayout(tb, { zeroLine: true }),
+        explain: [[c.risk.name, '--s-5y', 'Разница доходностей 10-летних облигаций Франции и Германии.']],
+      }),
+    });
+  }
+  if (c.equity || c.fx) charts.push(...[
+    c.equity && {
+      tab: t, id: `${t}-equity`, section: 'Рынок акций и валюта', source: c.equity.src, title: c.equity.name,
+      intro: (c.equity.monthly ? 'Помесячно (индекс ОЭСР). ' : '') + 'Рынок акций обычно начинает падать раньше официального спада экономики.',
+      log: true, noOverlay: true,
+      build: (I, tb) => ({
+        data: [line(I.c[t].equity, c.equity.short, '--s-10y', '%{y:,.0f}', { gap: 45 })],
+        layout: baseLayout(tb, { log: true }),
+        explain: [[c.equity.short, '--s-10y', EXPLAIN.drawdown]],
+      }),
+    },
+    c.fx && {
+      tab: t, id: `${t}-fx`, section: c.equity ? undefined : 'Валюта', source: c.fx.src, title: `Курс: ${c.fx.name.toLowerCase()}`,
+      intro: c.fx.band
+        ? 'Гонконгский доллар привязан к доллару США: курс держится в коридоре 7,75–7,85 (цветная полоса), поэтому ставки в Гонконге следуют за ставками ФРС.'
+        : `Сколько ${c.fx.name.split(' ')[0].toLowerCase()} стоит один доллар США. Рост — местная валюта слабеет: импорт дорожает, а бегство капитала в кризис обычно сопровождается резким ослаблением.`,
+      build: (I, tb) => ({
+        data: [line(I.c[t].fx, c.fx.name, '--s-30y', `%{y:,.${c.fx.band ? 4 : 3}f} ${c.fx.unit}`)],
+        layout: baseLayout(tb, c.fx.band ? { shapes: [{ type: 'rect', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: c.fx.band[0], y1: c.fx.band[1], fillcolor: withAlpha('--calm', 0.12), line: { width: 0 }, layer: 'below' }] } : {}),
+        explain: [[c.fx.name, '--s-30y', 'Официальный курс (ФРС США, данные с задержкой около недели).']],
+      }),
+    },
+  ].filter(Boolean));
+  charts.push(...realEstateCharts(t, c, c.name, t));
+  return charts;
+}
+
+// Добавляем графики стран и разделы «Недвижимость» в США и Россию.
+CHARTS.push(...realEstateCharts('us', REAL_ESTATE.us, 'США', 'us'));
+CHARTS.push({
+  tab: 'ru', id: 'ru-fx', section: 'Валюта', source: REAL_ESTATE.ru.fx.src, title: 'Курс: рублей за 1 доллар',
+  intro: 'Официальный курс Банка России. Рост — рубль слабеет: импорт дорожает, а резкие скачки (2008, 2014, 2022) совпадали с кризисами.',
+  build: (I, tb) => ({
+    data: [line(I.re.ru.fx, 'Рублей за 1 доллар', '--s-30y', '%{y:,.2f} ₽')],
+    layout: baseLayout(tb),
+    explain: [['Курс доллара', '--s-30y', 'Официальный курс ЦБ, ежедневно.']],
+  }),
+});
+CHARTS.push(...realEstateCharts('ru', REAL_ESTATE.ru, 'Россия', 'ru'));
+for (const c of COUNTRIES) CHARTS.push(...countryCharts(c));
+
+/** Карточки раздела «Недвижимость». */
+function realEstateCards(D, cfg, cid) {
+  const cards = [];
+  const ry = last(D.houseRealYoY), ny = last(D.houseNomYoY), dd = last(D.houseRealDd);
+  if (ry) {
+    cards.push(card({
+      label: 'Реальные цены на жильё за год', value: fmtNum(ry.value, 1, true), unit: '%', chart: `${cid}-house`,
+      zone: zoneOf(RE_ZONES, dd ? dd.value : 0), source: BIS_SRC(cfg.bis),
+      explain: 'Изменение цен на жильё за год с поправкой на инфляцию. Зона — по падению реальных цен от их исторического максимума.',
+      detail: `на ${fmtMonth(ry.date)} (квартал) · номинальные: ${fmtNum(ny?.value, 1, true)}% · от максимума: ${fmtNum(dd?.value, 0)}%`,
+    }));
+  }
+  const hd = last(D.hhDebt);
+  if (hd) {
+    const before = D.hhDebt.values[D.hhDebt.dates.indexOf(addMonths(hd.date, -60))];
+    cards.push(card({
+      label: 'Долг домохозяйств', value: fmtNum(hd.value, 1), unit: '% ВВП', chart: `${cid}-hhdebt`, source: BIS_DEBT_SRC(cfg.bis),
+      explain: 'Кредиты населения (в основном ипотека) в % ВВП. Быстрый рост вместе с ценами на жильё — признак кредитного пузыря.',
+      detail: `на ${fmtMonth(hd.date)} · за 5 лет: ${before ? fmtNum(hd.value - before, 1, true) + ' п.п.' : '—'}`,
+    }));
+  }
+  for (const m of cfg.mortgage || []) {
+    const v = last(D[m.id]);
+    if (!v) continue;
+    const yearAgo = D[m.id].values[Math.max(0, lowerBound(D[m.id].dates, addMonths(v.date, -12)) - 1)];
+    cards.push(card({
+      label: m.name, value: fmtNum(v.value, 2), unit: '%', chart: `${cid}-mortgage`, source: m.src,
+      explain: 'Средняя ставка по ипотеке. Чем выше, тем меньше покупатели могут занять и тем сильнее давление на цены.',
+      detail: `на ${fmtDate(v.date)} · за год: ${fmtNum(v.value - yearAgo, 2, true)} п.п.`,
+    }));
+    break;  // в сводке — одна главная ипотечная ставка
+  }
+  return cards;
+}
+
+/** Карточка курса: сколько местной валюты за доллар и изменение за год. */
+function fxCard(s, fx, chart) {
+  const v = last(s);
+  if (!v) return '';
+  const yearAgo = s.values[Math.max(0, lowerBound(s.dates, addMonths(v.date, -12)) - 1)];
+  const ch = (v.value / yearAgo - 1) * 100;
+  return card({
+    label: fx.name, value: fmtNum(v.value, fx.band ? 4 : 2), unit: fx.unit, chart, source: fx.src,
+    zone: fx.band ? { label: v.value > fx.band[1] - 0.01 || v.value < fx.band[0] + 0.01 ? 'У границы коридора' : 'Внутри коридора привязки', color: '--calm' }
+      : ch > 10 ? { label: `Валюта слабеет: ${fmtNum(ch, 1, true)}% за год`, color: '--stress' }
+        : ch < -10 ? { label: `Валюта крепнет: ${fmtNum(ch, 1, true)}% за год`, color: '--caution' }
+          : { label: `${fmtNum(ch, 1, true)}% за год`, color: '--calm' },
+    explain: 'Сколько местной валюты стоит один доллар США. Рост — местная валюта слабеет.',
+    detail: `на ${fmtDate(v.date)}`,
+  });
+}
+
+/** Сводка вкладки страны. */
+function countryCards(c) {
+  const D = state.ind.c[c.tab];
+  const rates = [];
+  for (const r of c.rates) {
+    const v = last(D[r.id]);
+    if (!v) continue;
+    const yearAgo = D[r.id].values[Math.max(0, lowerBound(D[r.id].dates, addMonths(v.date, -12)) - 1)];
+    rates.push(card({
+      label: r.name, value: fmtNum(v.value, 2), unit: '%', chart: `${c.tab}-rates`, source: r.src,
+      explain: r.step ? 'Ставка центробанка — цена денег в экономике.' : 'Доходность гособлигаций или ставка денежного рынка.',
+      detail: `на ${fmtDate(v.date)} · за год: ${fmtNum(v.value - yearAgo, 2, true)} п.п.`,
+    }));
+  }
+  c.curves.forEach((cv, k) => {
+    rates.push(curveCard(`Наклон кривой: ${cv.name}`, D.curves[k], 'Разница длинных и коротких ставок. Ниже нуля — инверсия.',
+      c.rates.flatMap((r) => r.src), `${c.tab}-curve`));
+  });
+  if (c.curves.length) {
+    rates.push(inversionCard(inversionStatus(inversionFlag(D.curves[0], D.curves[1] || D.curves[0])),
+      'Загорается, если хотя бы один из наклонов кривой ниже нуля.', c.rates.flatMap((r) => r.src), `${c.tab}-curve`));
+  }
+  if (c.risk && last(D.risk)) {
+    rates.push(percentileCard({
+      label: 'Спред OAT − Bund', unit: 'б.п.', digits: 0, signed: true, chart: `${c.tab}-risk`,
+      explain: 'Премия, которую Франция платит сверх Германии. Рост — сомнения инвесторов в бюджете Франции.',
+      source: [fred(c.risk.a), fred(c.risk.b)], detail: `на ${fmtMonth(last(D.risk).date)} · `,
+    }, D.risk, SPREAD_PCT_ZONES));
+  }
+  const market = [];
+  if (c.equity) market.push(indexCard(c.equity.short, D.equity, D.equityDd, 'Индекс акций.', c.equity.src, 0, `${c.tab}-equity`));
+  if (c.fx) market.push(fxCard(D.fx, c.fx, `${c.tab}-fx`));
+  return [
+    ['Ставки и кривая доходности', rates],
+    ['Рынок акций и валюта', market],
+    ['Недвижимость', realEstateCards(D, c, c.tab)],
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // Отрисовка графиков и масштаб оси Y
 // ---------------------------------------------------------------------------
 
@@ -1755,6 +2207,7 @@ function buildPanels(tab) {
         <button class="fs-btn" data-chart="${c.id}" aria-label="Открыть на весь экран" title="На весь экран">⛶</button>
       </div>
       <p class="note">${escapeHtml(c.intro)}</p>
+      ${c.story ? `<details class="story"><summary>Кризисы на рынке жилья: справка</summary><p>${escapeHtml(c.story)}</p></details>` : ''}
       <div class="chart-wrap">
         <div class="chart" id="${c.id}"></div>
         <div class="dots" id="${c.id}-dots"></div>
@@ -1912,7 +2365,7 @@ function renderChart(def, tab = state.tab) {
       layout.margin.r = 56;
       explain.push([overlay.name, '--overlay', EXPLAIN.overlay]);
     }
-    data.push(recessionLegendTrace(tab));
+    if (recessionShapes(tab).length) data.push(recessionLegendTrace(tab));   // у Китая и Гонконга полос нет
     explain.push(['Серые полосы', '--muted', EXPLAIN[TAB_BANDS[tab].explain]]);
 
     // Телефон: легенда в две колонки мелким шрифтом, высота графика растёт с числом рядов,
@@ -1964,13 +2417,22 @@ function renderChart(def, tab = state.tab) {
       const [axis, prop] = path.split('.');
       if (layout[axis]) layout[axis][prop] = v;
     }
+    // Нет данных (источник не ответил при последней загрузке) — честная надпись вместо пустых осей.
+    const hasData = data.some((t) => !t.meta && t.y && t.y.some((v) => v != null));
+    if (!hasData) {
+      layout.annotations = [...(layout.annotations || []), {
+        xref: 'paper', yref: 'paper', x: 0.5, y: 0.5, showarrow: false,
+        text: 'Нет данных: источник не ответил при последней загрузке.<br>Попробуйте позже — данные обновляются автоматически.',
+        font: { size: 13, color: css('--muted') },
+      }];
+    }
     hideCursorBox(el);
     clearDots(el);
     Plotly.react(el, data, layout, { ...PLOT_CONFIG, displayModeBar: !NARROW.matches && !TOUCH.matches && state.fs !== def.id });
     if (!el.dataset.bound) bindChartEvents(el, def);
 
     let srcLine = `Источник: ${srcHtml(def.source)}; полосы — ${srcHtml(TAB_BANDS[tab].source)}`;
-    if (overlay && !def.noOverlay) srcLine += `; наложенный индекс — ${srcHtml(OVERLAY_SRC[state.overlay[tab]])}`;
+    if (overlay && !def.noOverlay) srcLine += `; наложенный индекс — ${srcHtml(state.overlay[tab] === 'eq' ? COUNTRY[tab].equity.src : OVERLAY_SRC[state.overlay[tab]])}`;
     document.getElementById(`${def.id}-source`).innerHTML = `${srcLine}.`;
 
     document.getElementById(`${def.id}-explain`).innerHTML = explain.map(([name, color, text]) =>
@@ -2672,6 +3134,25 @@ function renderStatus() {
   status.classList.toggle('err', failed.length > 0);
 }
 
+/** Кнопки и пустые панели (оглавление, сводка, графики) для вкладок стран из COUNTRIES. */
+function createCountryTabs() {
+  const nav = $('.tabs');
+  let toc = $('#toc-ru'), cards = $('#cards-ru'), charts = $('#charts-ru');
+  for (const c of COUNTRIES) {
+    if (document.getElementById(`cards-${c.tab}`)) continue;
+    nav.insertAdjacentHTML('beforeend', `<button role="tab" data-tab="${c.tab}" aria-selected="false">${c.name}</button>`);
+    toc.insertAdjacentHTML('afterend', `<nav id="toc-${c.tab}" class="toc-wrap" aria-label="Содержание" hidden></nav>`);
+    cards.insertAdjacentHTML('afterend', `<section id="cards-${c.tab}" class="tab-pane" aria-live="polite" hidden></section>`);
+    charts.insertAdjacentHTML('afterend', `<div id="charts-${c.tab}" class="tab-pane" hidden></div>`);
+    toc = document.getElementById(`toc-${c.tab}`);
+    cards = document.getElementById(`cards-${c.tab}`);
+    charts = document.getElementById(`charts-${c.tab}`);
+  }
+  nav.querySelectorAll('button').forEach((b) => {
+    if (!b.dataset.bound) { b.dataset.bound = '1'; b.addEventListener('click', () => switchTab(b.dataset.tab)); }
+  });
+}
+
 function init() {
   document.querySelectorAll('.presets button').forEach((b) => {
     b.addEventListener('click', () => state.ind && applyPreset(b.dataset.preset));
@@ -2696,7 +3177,7 @@ function init() {
     if (state.ind) renderCharts(state.tab);
   });
 
-  document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+  // Кнопки вкладок подключаются в createCountryTabs().
 
   // Весь экран: кнопка ⛶ / ×, Esc, перерисовка при повороте экрана.
   document.addEventListener('click', (e) => {
@@ -2748,9 +3229,10 @@ function init() {
   // Смена системной темы → перерисовать графики новыми цветами.
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => state.ind && renderCharts(state.tab));
 
+  createCountryTabs();
   let saved = 'us';
   try { saved = localStorage.getItem('semkin-tab') || 'us'; } catch (e) { /* хранилище недоступно */ }
-  switchTab(saved === 'ru' ? 'ru' : 'us');
+  switchTab(TAB_BANDS[saved] ? saved : 'us');
   load();
 }
 
