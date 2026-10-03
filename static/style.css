@@ -155,9 +155,10 @@ button.link { background: none; border: none; padding: 0; color: var(--accent); 
   font-size: 13px; line-height: 1.45;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
 }
-/* Подсказка: наведение мышью (только на устройствах с мышью) или касание по «?» (класс tip-open) */
-@media (hover: hover) { .card:hover .tip { display: block; } }
+/* Пояснение карточки — по клику на карточку или «?» (класс tip-open), повторный клик закрывает */
+.card { cursor: pointer; }
 .card.tip-open .tip { display: block; }
+.card.tip-open .info { color: var(--accent); border-color: var(--accent); }
 .info { touch-action: manipulation; }
 
 /* Панель управления */
@@ -238,11 +239,16 @@ body.fs-open { overflow: hidden; }
 /* Блок значений для касаний: сбоку от вертикальной линии, закрывается касанием */
 .cursor-box {
   position: absolute; z-index: 5; cursor: pointer;
+  opacity: 0.55; transition: opacity 0.15s;          /* полупрозрачный, чтобы видеть график под ним */
   background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
   padding: 6px 9px; font-size: 12px; line-height: 1.4;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 .cursor-box .date { font-weight: 600; margin-bottom: 2px; }
+.cursor-box.solid { opacity: 1; }
+@media (hover: hover) { .cursor-box:hover { opacity: 1; } }
+/* Стандартная подсказка Plotly не нужна — значения показывает свой блок */
+.js-plotly-plot .hoverlayer { display: none; }
 .cursor-box .row { display: flex; align-items: baseline; gap: 6px; }
 .cursor-box .row .name { color: var(--muted); flex: 1; }
 .cursor-box .row b { white-space: nowrap; font-weight: 600; font-variant-numeric: tabular-nums; }

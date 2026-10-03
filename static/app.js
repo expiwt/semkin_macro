@@ -2126,15 +2126,19 @@ function showMeasure(el, clientX1, clientX2) {
   const span = days >= 730 ? `${fmtNum(days / 365.25, 1)} г.` : `${fmtNum(days)} дн.`;
   const box = document.getElementById(`${el.id}-cursor`);
   box.innerHTML = `<div class="date">${fmtDate(A.date)} → ${fmtDate(B.date)} · ${span}</div>${rows.join('')}
-    <div class="close">${TOUCH.matches ? 'коснитесь' : 'нажмите'}, чтобы скрыть</div>`;
+    <div class="close">${TOUCH.matches ? 'коснитесь — ярче, ещё раз — скрыть' : 'нажмите, чтобы скрыть'}</div>`;
   box.hidden = false;
+  box.classList.add('measuring');               // пока открыт замер, наведение его не перезаписывает
   placeBox(el, box, [A.date, B.date].map((d) => xa._offset + xa.l2p(toDate(d).getTime())));
-  box.onclick = () => hideCursor(el);
+  bindBoxTap(el, box);
 }
 
 function hideCursorBox(el) {
   const box = document.getElementById(`${el.id}-cursor`);
-  if (box) box.hidden = true;
+  if (box) {
+    box.hidden = true;
+    box.classList.remove('measuring', 'solid');
+  }
 }
 
 /** Убирает подсказку: точки, линии замера и блок со значениями. */
@@ -2150,9 +2154,59 @@ function hideCursor(el) {
 }
 
 /**
- * Касание графика: полупрозрачная вертикальная линия, кружки цвета линий на каждом ряду
- * и блок со значениями сбоку от линии (никогда не поверх неё). Касание блока — скрыть всё.
+ * Блок значений на дату: строки в том же порядке, что и кривые на графике (выше кривая — выше строка).
+ * rows: [{ tr, i, color, axis }].
  */
+function fillValuesBox(el, date, rows) {
+  const fl = el._fullLayout;
+  const py = (r) => {
+    const ya = r.axis === 'y2' ? fl.yaxis2 : fl.yaxis;
+    const v = ya ? ya.d2p(r.tr.y[r.i]) : 0;
+    return Number.isFinite(v) ? v : 0;
+  };
+  const sorted = [...rows].sort((a, b) => py(a) - py(b));       // меньше пиксель — выше на экране
+  const box = document.getElementById(`${el.id}-cursor`);
+  box.innerHTML = `<div class="date">${fmtDate(date)}</div>${sorted.map((r) => {
+    const cd = Array.isArray(r.tr.customdata) ? r.tr.customdata[r.i] : undefined;
+    return `<div class="row"><span class="swatch" style="background:${r.color}"></span>
+      <span class="name">${escapeHtml(r.tr.name)}</span><b>${escapeHtml(fillTemplate(r.tr.hovertemplate, r.tr.y[r.i], cd))}</b></div>`;
+  }).join('')}${TOUCH.matches ? '<div class="close">коснитесь — ярче, ещё раз — скрыть</div>' : ''}`;
+  box.hidden = false;
+  box.classList.remove('measuring');
+  return box;
+}
+
+/**
+ * Блок значений — в верхнем углу графика, с той стороны, где нет точек.
+ * Сторона меняется, только когда точки подходят под блок, — поэтому к блоку
+ * можно подвести мышь, и он не «убегает».
+ */
+function placeBoxCorner(el, box, lineX) {
+  const xa = el._fullLayout.xaxis;
+  const W = el.getBoundingClientRect().width;
+  box.style.maxWidth = `${Math.max(150, xa._length * 0.55)}px`;
+  box.style.top = `${el._fullLayout._size.t + 4}px`;
+  const put = (side) => {
+    el._boxSide = side;
+    box.style.left = side === 'left' ? `${xa._offset + 6}px` : '';
+    box.style.right = side === 'right' ? `${W - xa._offset - xa._length + 6}px` : '';
+  };
+  put(el._boxSide || (lineX < xa._offset + xa._length / 2 ? 'right' : 'left'));
+  const wrapLeft = el.getBoundingClientRect().left;
+  const b = box.getBoundingClientRect();
+  if (lineX + wrapLeft > b.left - 12 && lineX + wrapLeft < b.right + 12) put(el._boxSide === 'left' ? 'right' : 'left');
+}
+
+/** Касание блока значений: первое — сделать ярким, второе — убрать. Мышь: клик — убрать. */
+function bindBoxTap(el, box) {
+  box.classList.remove('solid');
+  box.onclick = () => {
+    if (TOUCH.matches && !box.classList.contains('solid')) box.classList.add('solid');
+    else hideCursor(el);
+  };
+}
+
+/** Касание графика (сенсорный экран): точки цвета линий и полупрозрачный блок значений. */
 function showCursor(el, clientX) {
   const xa = el._fullLayout.xaxis;
   const px = clientX - el.getBoundingClientRect().left - xa._offset;
@@ -2160,22 +2214,14 @@ function showCursor(el, clientX) {
   const { date, rows } = valuesAt(el, xa.p2l(px));
   if (!rows.length) { hideCursor(el); return; }
 
-  // Только точки цвета линий — без вертикальной линии
   const shapes = (el.layout.shapes || []).filter((sh) => sh.name !== 'cursor' && sh.name !== 'measure');
   const points = { y: [], y2: [] };
   for (const r of rows) points[r.axis].push({ x: r.tr.x[r.i], y: r.tr.y[r.i], c: r.color });
   setMarkers(el, points, shapes);
 
-  // Блок со значениями — с той стороны от линии, где больше места
-  const box = document.getElementById(`${el.id}-cursor`);
-  box.innerHTML = `<div class="date">${fmtDate(date)}</div>${rows.map((r) => {
-    const cd = Array.isArray(r.tr.customdata) ? r.tr.customdata[r.i] : undefined;
-    return `<div class="row"><span class="swatch" style="background:${r.color}"></span>
-      <span class="name">${escapeHtml(r.tr.name)}</span><b>${escapeHtml(fillTemplate(r.tr.hovertemplate, r.tr.y[r.i], cd))}</b></div>`;
-  }).join('')}<div class="close">коснитесь, чтобы скрыть</div>`;
-  box.hidden = false;
-  placeBox(el, box, [xa._offset + xa.l2p(toDate(date).getTime())]);
-  box.onclick = () => hideCursor(el);
+  const box = fillValuesBox(el, date, rows);
+  placeBoxCorner(el, box, xa._offset + xa.l2p(toDate(date).getTime()));
+  bindBoxTap(el, box);
 }
 
 /**
@@ -2363,14 +2409,32 @@ function bindChartEvents(el, def) {
   });
 
   // Наведение мышью: точки цвета линий на всех рядах в дате под курсором.
+  // Стандартная подсказка Plotly скрыта (CSS .hoverlayer) — вместо неё свой блок значений,
+  // где строки идут в том же порядке, что и кривые.
+  const box = document.getElementById(`${el.id}-cursor`);
   el.on('plotly_hover', (ev) => {
-    if (TOUCH.matches) return;
-    drawDots(el, ev.points
-      .filter((p) => !p.data.meta || p.data.meta === 'overlay')
-      .map((p) => ({ x: p.x, y: p.y, axis: p.data.yaxis === 'y2' ? 'y2' : 'y',
-        color: (p.data.line && p.data.line.color) || (p.data.marker && p.data.marker.color) })));
+    if (TOUCH.matches || box.classList.contains('measuring')) return;
+    clearTimeout(el._hideTimer);
+    const rows = ev.points
+      .filter((p) => (!p.data.meta || p.data.meta === 'overlay') && p.data.hovertemplate)
+      .map((p) => ({ tr: p.data, i: p.pointIndex ?? p.pointNumber,
+        color: (p.data.line && p.data.line.color) || (p.data.marker && p.data.marker.color), axis: p.data.yaxis === 'y2' ? 'y2' : 'y' }));
+    if (!rows.length) return;
+    drawDots(el, rows.map((r) => ({ x: r.tr.x[r.i], y: r.tr.y[r.i], axis: r.axis, color: r.color })));
+    const date = String(rows[0].tr.x[rows[0].i]).slice(0, 10);
+    fillValuesBox(el, date, rows);
+    placeBoxCorner(el, box, el._fullLayout.xaxis._offset + el._fullLayout.xaxis.l2p(toDate(date).getTime()));
+    box.onclick = () => hideCursor(el);
   });
-  el.on('plotly_unhover', () => { if (!TOUCH.matches) clearDots(el); });
+  // Уход мыши с графика: прячем, если мышь не перешла на сам блок (на нём он становится ярким).
+  const hideLater = () => {
+    clearTimeout(el._hideTimer);
+    el._hideTimer = setTimeout(() => {
+      if (!box.matches(':hover') && !box.querySelector('.close')) { clearDots(el); hideCursorBox(el); }
+    }, 150);
+  };
+  el.on('plotly_unhover', () => { if (!TOUCH.matches) hideLater(); });
+  box.addEventListener('mouseleave', (e) => { if (!TOUCH.matches && !el.contains(e.relatedTarget)) hideLater(); });
   el.on('plotly_relayout', () => clearDots(el));  // после зума старые позиции точек неверны
 
   // Клик по легенде → пересчитываем ось Y; псевдо-ряд «Рецессии» скрывает полосы.
@@ -2658,11 +2722,10 @@ function init() {
     target.classList.add('flash');
   });
 
-  // Подсказки карточек: открываются и закрываются касанием (на телефоне нет наведения,
-  // а iPhone не даёт кнопке фокус при касании). Касание вне подсказки закрывает её.
+  // Пояснение карточки — по клику на карточку (кроме ссылок) или на «?»; повторный клик закрывает.
   document.addEventListener('click', (e) => {
-    const info = e.target.closest('.info');
-    const open = info && info.closest('.card');
+    if (e.target.closest('a')) return;
+    const open = e.target.closest('.card');
     const wasOpen = open && open.classList.contains('tip-open');
     document.querySelectorAll('.card.tip-open').forEach((c) => c.classList.remove('tip-open'));
     if (open && !wasOpen) open.classList.add('tip-open');
