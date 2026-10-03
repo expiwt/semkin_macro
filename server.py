@@ -22,7 +22,8 @@ SEMKIN macro — локальный сервер дашборда ранних �
   CBOE    — put/call ratio: архивные CSV (2003–2019) + дневные файлы (с октября 2019).
   datahub — помесячная история S&P 500 (данные Шиллера) до начала дневного ряда FRED.
   Мосбиржа (ISS) — индексы IMOEX, RTS, RGBI, корпоративных облигаций; кривая ОФЗ (с 2014);
-            открытые позиции физлиц и юрлиц по фьючерсам (с 2020, задержка 14 дней).
+            открытые позиции физлиц и юрлиц по фьючерсам (с 2020; API — с задержкой 14 дней,
+            последние две недели — с сайта Мосбиржи).
   Банк России — ключевая ставка и курс доллара.
   Минфин — исполнение федерального бюджета (с 2011) и ФНБ (с 2008); SIPRI — военные расходы.
 
@@ -586,7 +587,53 @@ def fetch_futoi(_api_key, prev):
             frm = to + dt.timedelta(days=1)
         for sid, p in pts.items():
             out.append(make_series(sid, f"{FUTOI_TICKERS[ticker]}: {sid}", "Мосбиржа FUTOI", merge_prev(prev, sid, p),
-                                   note=f"Ежедневно, бесплатно — с задержкой {FUTOI_DELAY - 1} дней"))
+                                   note="Ежедневно; последние 2 недели — с сайта Мосбиржи"))
+
+    # Последние ~14 дней API отдаёт только платным пользователям, но те же цифры бесплатно
+    # публикуются на сайте Мосбиржи — по одному CSV-файлу на день. Добираем недостающие дни.
+    fresh = fetch_moex_open_positions(till + dt.timedelta(days=1), dt.date.today())
+    by_id = {s["id"]: s for s in out}
+    for sid, points in fresh.items():
+        if sid in by_id and points:
+            merged = dict(zip(by_id[sid]["dates"], by_id[sid]["values"]))
+            merged.update(points)
+            by_id[sid].update(make_series(sid, by_id[sid]["title"], by_id[sid]["source"], merged.items(), by_id[sid].get("note")))
+    return out
+
+
+# Базовые активы на сайте Мосбиржи → тикеры отчёта FUTOI.
+MOEX_SITE_ASSETS = {"MIX": "MX", "MXI": "MM", "IMOEX": "IMOEXF", "RTS": "RI", "RGBI": "RB"}
+
+
+def fetch_moex_open_positions(start, end):
+    """
+    Открытые позиции физлиц и юрлиц с сайта Мосбиржи (moex.com/ru/derivatives/open-positions):
+    один CSV на торговый день, без задержки. Возвращает {ID ряда FUTOI: {дата: значение}}.
+    Физлица помечены iz_fiz = 1, юрлица — пустым полем.
+    """
+    out = {}
+    d = start
+    while d <= end:
+        if d.weekday() < 5:
+            url = f"https://www.moex.com/ru/derivatives/open-positions-csv.aspx?d={d:%Y%m%d}&t=1"
+            try:
+                text = http_get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"}).lstrip("\ufeff")
+            except (urllib.error.URLError, OSError):
+                text = ""
+            for r in csv.DictReader(io.StringIO(text)):
+                ticker = MOEX_SITE_ASSETS.get(r.get("isin"))
+                if r.get("contract_type") != "F" or not ticker or r.get("moment") != d.isoformat():
+                    continue
+                group = "FIZ" if (r.get("iz_fiz") or "").strip() else "YUR"
+                p = f"FUTOI_{ticker}_{group}_"
+                try:
+                    vals = {"L": float(r["long_position"]), "S": abs(float(r["short_position"])),
+                            "NL": float(r["clients_in_long"]), "NS": float(r["clients_in_short"])}
+                except (KeyError, ValueError):
+                    continue
+                for k, v in vals.items():
+                    out.setdefault(p + k, {})[d.isoformat()] = v
+        d += dt.timedelta(days=1)
     return out
 
 

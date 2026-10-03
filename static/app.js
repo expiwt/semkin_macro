@@ -86,7 +86,7 @@ const EXPLAIN = {
   rgbi: 'Ценовой индекс гособлигаций. Растёт, когда доходности падают (рынок ждёт снижения ставки), и падает при росте ставок.',
   futFiz: 'Физлица — частные инвесторы. Мосбиржа публикует их позиции отдельно от юрлиц, так что это прямой показатель настроения розницы.',
   futYur: 'Юрлица — банки, фонды, брокеры, компании. Их нетто-позиция всегда зеркальна нетто-позиции физлиц: на каждый лонг есть шорт.',
-  futMoney: 'Позиции переведены в рубли: контракты × стоимость контракта по текущей спецификации Мосбиржи × значение индекса на дату. Сплошная линия — лонги, пунктир — шорты. Бесплатные данные — с задержкой 14 дней.',
+  futMoney: 'Позиции переведены в рубли: контракты × стоимость контракта по текущей спецификации Мосбиржи × значение индекса на дату. Сплошная линия — лонги, пунктир — шорты. Данные Мосбиржи на последний торговый день.',
   accounts: 'Сколько счетов физлиц держат лонг и сколько — шорт. Показывает, насколько массово розница ставит на рост или падение, независимо от объёма денег.',
   budRev: 'Все доходы федерального бюджета за последние 12 месяцев. Сумма за 12 месяцев убирает сезонность: налоги и расходы распределены по году очень неравномерно.',
   budOil: 'Нефтегазовые доходы — налоги и пошлины на добычу и экспорт нефти и газа. Зависят от цен на нефть, курса рубля и объёмов экспорта; их падение — главный риск для бюджета.',
@@ -109,32 +109,59 @@ const EXPLAIN = {
 // Источники данных (показываются под графиками и в подсказках карточек)
 // ---------------------------------------------------------------------------
 
+/** Ссылка на ряд FRED. */
+const fred = (id, label = `FRED: ${id}`) => [label, `https://fred.stlouisfed.org/series/${id}`];
+const MOEX_INDEX = (id) => [`Мосбиржа: ${id}`, `https://www.moex.com/ru/index/${id}`];
+
+// Источник — список пар [подпись, ссылка]; показывается кликабельными ссылками.
 const SRC = {
-  yields: 'FRED (ФРС Сент-Луиса): DGS3MO, DGS2, DGS5, DGS10, DGS30',
-  curve: 'расчёт по данным FRED: DGS10 − DGS2, DGS10 − DGS3MO',
-  hy: 'FRED: BAMLH0A0HYM2 (ICE BofA US High Yield Index OAS, ICE Data Indices)',
-  hyRoc: 'расчёт по данным FRED: BAMLH0A0HYM2, BAA10Y',
-  baa: "FRED: BAA10Y (Moody's Seasoned Baa Corporate Bond Yield − 10Y Treasury)",
-  gz: 'ФРС США: Gilchrist & Zakrajšek, «Updating the Recession Risk and the Excess Bond Premium», FEDS Notes',
-  margin: 'FINRA: Margin Statistics; FRED: M2SL',
-  cap: 'ФРС США, отчёт Z.1 (FRED: BOGZ1LM883164105Q); FINRA: Margin Statistics',
-  indices: 'FRED: SP500, NASDAQCOM; S&P 500 до 2016 г. — данные Р. Шиллера (datahub.io)',
-  tff: 'CFTC: Traders in Financial Futures (publicreporting.cftc.gov); FRED: SP500, NASDAQ100',
-  cot: 'CFTC: Commitments of Traders, legacy (publicreporting.cftc.gov)',
-  putcall: 'CBOE: архив и дневная статистика put/call ratio (cboe.com)',
-  short: 'FINRA: Consolidated Short Interest (api.finra.org)',
-  nber: 'NBER (FRED: USREC)',
-  keyRate: 'Банк России: ключевая ставка (cbr.ru)',
-  ofz: 'Мосбиржа: кривая бескупонной доходности ОФЗ (iss.moex.com)',
-  ruCurve: 'расчёт по данным Мосбиржи (кривая ОФЗ) и Банка России (ключевая ставка)',
-  ruBonds: 'Мосбиржа: индексы RGBI, RUCBITR, RUCBTRNS (iss.moex.com)',
-  ruIndices: 'Мосбиржа: индексы IMOEX, RTSI, RGBI (iss.moex.com)',
-  futoi: 'Мосбиржа: «Открытые позиции» FUTOI (iss.moex.com); курс доллара — Банк России',
-  budget: 'Минфин России: краткая ежемесячная информация об исполнении федерального бюджета (minfin.gov.ru)',
-  nwf: 'Минфин России: статистика Фонда национального благосостояния (minfin.gov.ru)',
-  defense: 'Минфин России (раздел «Национальная оборона», до 2021 г.); SIPRI Military Expenditure Database (sipri.org)',
-  sipri: 'SIPRI Military Expenditure Database (sipri.org)',
-  ruCrises: 'периоды спада ВВП России — приблизительно, по данным Росстата',
+  yields: [fred('DGS3MO'), fred('DGS2'), fred('DGS5'), fred('DGS10'), fred('DGS30')],
+  curve: [['расчёт по данным FRED'], fred('DGS10'), fred('DGS2'), fred('DGS3MO')],
+  hy: [fred('BAMLH0A0HYM2', 'FRED: BAMLH0A0HYM2 (ICE BofA US High Yield OAS)')],
+  hyRoc: [['расчёт по данным FRED'], fred('BAMLH0A0HYM2'), fred('BAA10Y')],
+  baa: [fred('BAA10Y', "FRED: BAA10Y (Moody's Baa − 10Y Treasury)")],
+  gz: [['ФРС США: Gilchrist & Zakrajšek, FEDS Notes', 'https://www.federalreserve.gov/econres/notes/feds-notes/updating-the-recession-risk-and-the-excess-bond-premium-20161006.html'],
+    ['данные (CSV)', 'https://www.federalreserve.gov/econres/notes/feds-notes/ebp_csv.csv']],
+  finra: [['FINRA: Margin Statistics', 'https://www.finra.org/rules-guidance/key-topics/margin-accounts/margin-statistics']],
+  margin: [['FINRA: Margin Statistics', 'https://www.finra.org/rules-guidance/key-topics/margin-accounts/margin-statistics'], fred('M2SL')],
+  cap: [fred('BOGZ1LM883164105Q', 'ФРС, отчёт Z.1 (FRED: BOGZ1LM883164105Q)'),
+    ['FINRA: Margin Statistics', 'https://www.finra.org/rules-guidance/key-topics/margin-accounts/margin-statistics']],
+  indices: [fred('SP500'), fred('NASDAQCOM'), ['S&P 500 до 2016 г. — данные Р. Шиллера', 'https://datahub.io/core/s-and-p-500']],
+  tff: [['CFTC: Traders in Financial Futures', 'https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm'], fred('SP500'), fred('NASDAQ100')],
+  cot: [['CFTC: Commitments of Traders', 'https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm']],
+  putcall: [['CBOE: статистика put/call', 'https://www.cboe.com/us/options/market_statistics/']],
+  short: [['FINRA: Equity Short Interest', 'https://www.finra.org/finra-data/browse-catalog/equity-short-interest']],
+  nber: [fred('USREC', 'рецессии NBER (FRED: USREC)')],
+  keyRate: [['Банк России: ключевая ставка', 'https://www.cbr.ru/hd_base/KeyRate/']],
+  ofz: [['Мосбиржа: кривая бескупонной доходности ОФЗ', 'https://www.moex.com/ru/marketdata/indices/state/g-curve/']],
+  ruCurve: [['расчёт по данным Мосбиржи (кривая ОФЗ)', 'https://www.moex.com/ru/marketdata/indices/state/g-curve/'],
+    ['Банка России (ключевая ставка)', 'https://www.cbr.ru/hd_base/KeyRate/']],
+  ruBonds: [MOEX_INDEX('RGBI'), MOEX_INDEX('RUCBTRNS'), ['RUCBITR (до 2023)', 'https://www.moex.com/ru/index/RUCBITR']],
+  ruIndices: [MOEX_INDEX('IMOEX'), MOEX_INDEX('RTSI'), MOEX_INDEX('RGBI')],
+  futoi: [['Мосбиржа: открытые позиции', 'https://www.moex.com/ru/derivatives/open-positions.aspx'],
+    ['курс доллара — Банк России', 'https://www.cbr.ru/currency_base/dynamics/']],
+  budget: [['Минфин России: исполнение федерального бюджета', 'https://minfin.gov.ru/ru/statistics/fedbud/execute/']],
+  nwf: [['Минфин России: ФНБ', 'https://minfin.gov.ru/ru/perfomance/nationalwealthfund/statistics/']],
+  defense: [['Минфин России (раздел «Национальная оборона», до 2021 г.)', 'https://minfin.gov.ru/ru/statistics/fedbud/execute/'],
+    ['SIPRI Military Expenditure Database', 'https://www.sipri.org/databases/milex']],
+  sipri: [['SIPRI Military Expenditure Database', 'https://www.sipri.org/databases/milex']],
+  ruCrises: [['периоды спада ВВП России — приблизительно, по данным Росстата', 'https://rosstat.gov.ru/statistics/accounts']],
+};
+
+/** Источник → HTML с кликабельными ссылками (открываются в новой вкладке). */
+function srcHtml(list) {
+  return (list || []).map(([text, url]) => (url
+    ? `<a href="${url}" target="_blank" rel="noopener">${escapeHtml(text)}</a>`
+    : escapeHtml(text))).join(', ');
+}
+
+// Источник наложенного индекса.
+const OVERLAY_SRC = { sp500: SRC.indices, nasdaq: SRC.indices, imoex: SRC.ruIndices, rts: SRC.ruIndices };
+
+// Полосы рецессий и кризисов по вкладкам: подпись в легенде, пояснение и источник.
+const TAB_BANDS = {
+  us: { legend: 'Рецессии NBER', explain: 'usrec', source: SRC.nber },
+  ru: { legend: 'Спады ВВП', explain: 'ruCrises', source: SRC.ruCrises },
 };
 
 // ---------------------------------------------------------------------------
@@ -271,6 +298,7 @@ const state = {
   tab: 'us',          // активная вкладка
   overlay: { us: '', ru: '' },  // наложенный индекс для каждой вкладки
   syncing: false,     // защита от рекурсии при синхронизации зума между графиками
+  fs: null,           // id графика, развёрнутого на весь экран
 };
 
 const OVERLAYS = {
@@ -717,10 +745,25 @@ function minSince(s, days) {
 
 let tipCounter = 0;
 
-function card({ label, value, unit = '', zone, detail = '', extraHtml = '', explain, source }) {
+// Карточка → график, на котором видно, откуда взято значение (по началу подписи карточки).
+const CARD_CHART = {
+  us: [['Спред 10Y', 'chart-curve'], ['Флаг инверсии', 'chart-curve'], ['Доходности трежерис', 'chart-yields'],
+    ['Спред мусорных', 'chart-hy'], ['Изменение HY OAS', 'chart-roc'], ['Спред Baa', 'chart-baa'], ['GZ-спред', 'chart-gz'],
+    ['Вероятность рецессии', 'chart-gzprob'], ['Маржинальный долг / M2', 'chart-margin-m2'], ['Капитализация /', 'chart-cap-margin'],
+    ['Маржинальный долг', 'chart-margin-m2'], ['S&P 500', 'chart-indices'], ['NASDAQ Composite', 'chart-indices'],
+    ['Фьючерсы S&P 500', 'chart-tff-spx'], ['Фьючерсы NASDAQ-100', 'chart-tff-ndx'], ['COT:', 'chart-cot'],
+    ['Put/call', 'chart-putcall'], ['Short interest', 'chart-short'], ['Рецессия по NBER', 'chart-yields']],
+  ru: [['Ключевая ставка', 'ru-rates'], ['ОФЗ 10 лет', 'ru-rates'], ['Спред ОФЗ', 'ru-curve'], ['Флаг инверсии', 'ru-curve'],
+    ['Спред корпоративных', 'ru-spread'], ['Доходность: корпоративные', 'ru-bonds'], ['Индекс Мосбиржи', 'ru-indices'],
+    ['Индекс РТС', 'ru-indices'], ['Индекс гособлигаций', 'ru-rgbi'], ['Фьючерсы на', 'ru-fut-net'],
+    ['Дефицит', 'ru-budget-balance'], ['Нефтегазовые', 'ru-budget-flows'], ['ФНБ', 'ru-nwf'], ['Ликвидная часть', 'ru-nwf'],
+    ['Военные расходы', 'ru-defense']],
+};
+
+function card({ label, value, unit = '', zone, detail = '', extraHtml = '', explain, source, chart }) {
   const zoneStyle = zone ? `style="--zone: var(${zone.color})"` : '';
   const tipId = `tip-${++tipCounter}`;
-  const src = source ? `<span class="tip-src">Источник: ${escapeHtml(source)}</span>` : '';
+  const src = source ? `<span class="tip-src">Источник: ${srcHtml(source)}</span>` : '';
   const tip = explain
     ? `<button class="info" aria-label="Что это?" aria-describedby="${tipId}">?</button>
        <div class="tip" role="tooltip" id="${tipId}">${escapeHtml(explain)}${src}</div>`
@@ -731,7 +774,14 @@ function card({ label, value, unit = '', zone, detail = '', extraHtml = '', expl
     ${zone ? `<div class="zone">${zone.label}</div>` : ''}
     ${extraHtml}
     ${detail ? `<div class="detail">${detail}</div>` : ''}
+    ${chartLink(chart, label)}
   </div>`;
+}
+
+/** Ссылка «к графику» на карточке. */
+function chartLink(chart, label) {
+  const id = chart || ((CARD_CHART[state.tab] || []).find(([prefix]) => label.startsWith(prefix)) || [])[1];
+  return id ? `<a class="to-chart" href="#panel-${id}" data-chart="${id}">к графику ↓</a>` : '';
 }
 
 /** Карточка с зоной по перцентилю собственной истории. invert — если «хуже» = ниже. */
@@ -877,7 +927,7 @@ function usCards(I) {
   const m = last(I.margin), yoy = last(I.marginYoY);
   if (m) {
     leverage.push(card({
-      label: 'Маржинальный долг', source: 'FINRA: Margin Statistics', value: fmtNum(m.value), unit: 'млрд $', explain: EXPLAIN.margin,
+      label: 'Маржинальный долг', source: SRC.finra, value: fmtNum(m.value), unit: 'млрд $', explain: EXPLAIN.margin,
       zone: yoy && yoy.value > 30 ? { label: `Быстрый рост: ${fmtNum(yoy.value, 0, true)}% г/г`, color: '--caution' }
         : { label: `${fmtNum(yoy?.value, 0, true)}% за год`, color: '--border' },
       detail: `на ${fmtMonth(m.date)}, FINRA, задержка ~3–4 недели`,
@@ -995,15 +1045,15 @@ function ruCards(I) {
   const pos = [
     extremesCard({
       label: 'Фьючерсы на IMOEX: физлица, нетто', source: SRC.futoi, unit: 'млрд ₽', signed: true,
-      explain: `${EXPLAIN.futFiz} ${EXPLAIN.futMoney}`, detail: 'задержка 14 дн., ',
+      explain: `${EXPLAIN.futFiz} ${EXPLAIN.futMoney}`, detail: 'Мосбиржа, ',
     }, I.futImoex.FIZ.net, retail),
     extremesCard({
       label: 'Фьючерсы на РТС: физлица, нетто', source: SRC.futoi, unit: 'млрд ₽', signed: true,
-      explain: `${EXPLAIN.futFiz} ${EXPLAIN.futMoney}`, detail: 'задержка 14 дн., ',
+      explain: `${EXPLAIN.futFiz} ${EXPLAIN.futMoney}`, detail: 'Мосбиржа, ',
     }, I.futRts.FIZ.net, retail),
     extremesCard({
       label: 'Фьючерсы на RGBI: физлица, нетто', source: SRC.futoi, unit: 'млрд ₽', signed: true,
-      explain: `${EXPLAIN.futFiz} ${EXPLAIN.futMoney}`, detail: 'задержка 14 дн., ',
+      explain: `${EXPLAIN.futFiz} ${EXPLAIN.futMoney}`, detail: 'Мосбиржа, ',
     }, I.futRgbi.FIZ.net, retail),
   ];
 
@@ -1051,7 +1101,7 @@ function ruCards(I) {
     const cover = nl.value / -b12.value;
     budget.push(card({
       label: 'Ликвидная часть ФНБ / годовой дефицит', value: fmtNum(cover, 1), unit: 'года',
-      explain: EXPLAIN.nwfCover, source: `${SRC.nwf}; ${SRC.budget}`,
+      explain: EXPLAIN.nwfCover, source: [...SRC.nwf, ...SRC.budget],
       zone: cover < 0.5 ? { label: 'Запас меньше полугода дефицита', color: '--stress' }
         : cover < 1 ? { label: 'Запас меньше года дефицита', color: '--caution' }
           : { label: 'Запас больше года дефицита', color: '--calm' },
@@ -1159,7 +1209,7 @@ function zoneAnnotations(zones) {
 function recessionLegendTrace(tab) {
   return {
     type: 'scatter', mode: 'markers', x: [null], y: [null],
-    name: tab === 'ru' ? 'Спады ВВП' : 'Рецессии NBER', meta: 'recession-toggle',
+    name: TAB_BANDS[tab].legend, meta: 'recession-toggle',
     marker: { symbol: 'square', size: 12, color: css('--recession') },
     hoverinfo: 'skip',
   };
@@ -1455,7 +1505,7 @@ const CHARTS = [
 
   // ============================ Россия ============================
   {
-    tab: 'ru', id: 'ru-rates', source: `${SRC.keyRate}; ${SRC.ofz}`, section: 'Ставки и кривая ОФЗ', title: 'Ключевая ставка и доходности ОФЗ',
+    tab: 'ru', id: 'ru-rates', source: [...SRC.keyRate, ...SRC.ofz], section: 'Ставки и кривая ОФЗ', title: 'Ключевая ставка и доходности ОФЗ',
     intro: 'Ключевая ставка Банка России (с 2013 года) и доходности ОФЗ по кривой бескупонной доходности Мосбиржи (с 2014 года). Когда короткие ОФЗ доходнее длинных, рынок ждёт снижения ставки — обычно после периода жёсткой политики.',
     build: (I, tab) => ({
       data: [
@@ -1498,7 +1548,7 @@ const CHARTS = [
     }),
   },
   {
-    tab: 'ru', id: 'ru-spread', source: `расчёт по данным: ${SRC.ruBonds}`, title: 'Спред корпоративных облигаций к ОФЗ',
+    tab: 'ru', id: 'ru-spread', source: [['расчёт по данным'], ...SRC.ruBonds], title: 'Спред корпоративных облигаций к ОФЗ',
     intro: 'Российский аналог кредитного спреда: насколько доходность корпоративного индекса выше доходности RGBI. Общепринятых порогов нет, поэтому зона на карточке — по перцентилю собственной истории.',
     build: (I, tab) => ({
       data: [line(I.ruSpread, 'Корпоративные − ОФЗ', '--s-5y', '%{y:+.0f} б.п.')],
@@ -1527,7 +1577,7 @@ const CHARTS = [
   },
   {
     tab: 'ru', id: 'ru-fut-imoex', source: SRC.futoi, section: 'Позиции физлиц и юрлиц во фьючерсах', title: 'Фьючерсы на индекс Мосбиржи: лонги и шорты, млрд ₽',
-    intro: 'Сумма по фьючерсам MX, MM (мини) и вечному IMOEXF. Мосбиржа публикует открытые позиции отдельно для физлиц и юрлиц — это та самая разбивка, которой нет в американских данных. Бесплатно — с 2020 года и с задержкой 14 дней.',
+    intro: 'Сумма по фьючерсам MX, MM (мини) и вечному IMOEXF. Мосбиржа публикует открытые позиции отдельно для физлиц и юрлиц — это та самая разбивка, которой нет в американских данных. Данные с 2020 года, на последний торговый день.',
     build: (I, tab) => ({
       data: [
         ...longShortTraces(I.futImoex.FIZ, 'Физлица', '--s-3m', 'млрд ₽'),
@@ -1697,18 +1747,47 @@ const tabCharts = (tab) => CHARTS.filter((c) => c.tab === tab);
 function buildPanels(tab) {
   const root = $(`#charts-${tab}`);
   if (root.childElementCount) return;
+  let secNo = 0;
   root.innerHTML = tabCharts(tab).map((c) => `
-    ${c.section ? `<h2 class="section">${c.section}</h2>` : ''}
-    <section class="panel">
-      <h2>${escapeHtml(c.title)}</h2>
+    ${c.section ? `<h2 class="section" id="sec-${tab}-${++secNo}">${c.section}</h2>` : ''}
+    <section class="panel" id="panel-${c.id}">
+      <div class="panel-head">
+        <h2>${escapeHtml(c.title)}</h2>
+        <button class="fs-btn" data-chart="${c.id}" aria-label="Открыть на весь экран" title="На весь экран">⛶</button>
+      </div>
       <p class="note">${escapeHtml(c.intro)}</p>
       <div class="chart-wrap">
         <div class="chart" id="${c.id}"></div>
         <div class="cursor-box" id="${c.id}-cursor" hidden></div>
       </div>
-      <div class="explain" id="${c.id}-explain"></div>
-      <p class="source" id="${c.id}-source"></p>
+      <details class="more">
+        <summary>Что на графике и откуда данные</summary>
+        <div class="explain" id="${c.id}-explain"></div>
+        <p class="source" id="${c.id}-source"></p>
+      </details>
     </section>`).join('');
+  buildToc(tab);
+}
+
+/** Оглавление вкладки: сводка и разделы со списком графиков — ссылки-переходы. */
+function buildToc(tab) {
+  const sections = [];
+  for (const c of tabCharts(tab)) {
+    if (c.section || !sections.length) sections.push({ title: c.section || 'Графики', charts: [] });
+    sections[sections.length - 1].charts.push(c);
+  }
+  let secNo = 0;
+  $(`#toc-${tab}`).innerHTML = `
+    <details class="toc" open>
+      <summary>Содержание</summary>
+      <ol>
+        <li><a href="#cards-${tab}">Сводка: текущие значения индикаторов</a></li>
+        ${sections.map((sec) => `
+          <li><a href="#sec-${tab}-${++secNo}">${escapeHtml(sec.title)}</a>
+            <ul>${sec.charts.map((c) => `<li><a href="#panel-${c.id}" data-chart="${c.id}">${escapeHtml(c.title)}</a></li>`).join('')}</ul>
+          </li>`).join('')}
+      </ol>
+    </details>`;
 }
 
 /** Пределы видимых значений по оси (y или y2) в текущем окне дат. */
@@ -1811,8 +1890,13 @@ function axisUpdate(traces, def) {
 
 function renderCharts(tab) {
   buildPanels(tab);
+  for (const def of tabCharts(tab)) renderChart(def, tab);
+}
+
+/** Рисует один график (обычный или развёрнутый на весь экран). */
+function renderChart(def, tab = state.tab) {
   const overlay = overlayTrace(tab);
-  for (const def of tabCharts(tab)) {
+  {
     const el = document.getElementById(def.id);
     const built = def.build(state.ind, tab);
     const data = [...built.data];
@@ -1829,7 +1913,7 @@ function renderCharts(tab) {
       explain.push([overlay.name, '--overlay', EXPLAIN.overlay]);
     }
     data.push(recessionLegendTrace(tab));
-    explain.push(['Серые полосы', '--muted', tab === 'ru' ? EXPLAIN.ruCrises : EXPLAIN.usrec]);
+    explain.push(['Серые полосы', '--muted', EXPLAIN[TAB_BANDS[tab].explain]]);
 
     // Телефон: легенда в две колонки мелким шрифтом, высота графика растёт с числом рядов,
     // чтобы легенда не съедала область графика; панель кнопок Plotly скрыта.
@@ -1867,6 +1951,12 @@ function renderCharts(tab) {
       delete layout.height;
       el.style.height = '';
     }
+    // Весь экран: график занимает всю высоту окна под заголовком.
+    if (state.fs === def.id) {
+      const head = document.querySelector(`#panel-${def.id} .panel-head`);
+      layout.height = Math.max(280, window.innerHeight - (head ? head.offsetHeight : 40) - 28);
+      el.style.height = `${layout.height}px`;
+    }
 
     // Ключи вида 'yaxis.range' раскладываем в объект layout.
     for (const [path, v] of Object.entries(axisUpdate(data, def))) {
@@ -1874,12 +1964,12 @@ function renderCharts(tab) {
       if (layout[axis]) layout[axis][prop] = v;
     }
     hideCursorBox(el);
-    Plotly.react(el, data, layout, { ...PLOT_CONFIG, displayModeBar: !NARROW.matches && !TOUCH.matches });
+    Plotly.react(el, data, layout, { ...PLOT_CONFIG, displayModeBar: !NARROW.matches && !TOUCH.matches && state.fs !== def.id });
     if (!el.dataset.bound) bindChartEvents(el, def);
 
-    const sources = [def.source, `полосы — ${tab === 'ru' ? SRC.ruCrises : `рецессии ${SRC.nber}`}`];
-    if (overlay && !def.noOverlay) sources.push(`наложенный индекс — ${tab === 'ru' ? SRC.ruIndices : SRC.indices}`);
-    document.getElementById(`${def.id}-source`).textContent = `Источник: ${sources.join('; ')}.`;
+    let srcLine = `Источник: ${srcHtml(def.source)}; полосы — ${srcHtml(TAB_BANDS[tab].source)}`;
+    if (overlay && !def.noOverlay) srcLine += `; наложенный индекс — ${srcHtml(OVERLAY_SRC[state.overlay[tab]])}`;
+    document.getElementById(`${def.id}-source`).innerHTML = `${srcLine}.`;
 
     document.getElementById(`${def.id}-explain`).innerHTML = explain.map(([name, color, text]) =>
       `<div><span class="swatch" style="background: var(${color})"></span><b>${escapeHtml(name)}.</b> ${escapeHtml(text)}</div>`,
@@ -1930,6 +2020,103 @@ function nearestPoint(tr, ms) {
   return bestDist <= Math.max(3 * DAY_MS, 1.5 * step) ? best : -1;
 }
 
+/**
+ * Значения всех видимых рядов графика на дату (ближайшие точки).
+ * Возвращает { date, rows: [{ tr, i, color, axis }] }.
+ */
+function valuesAt(el, ms) {
+  const rows = [];
+  let date = null;
+  for (const tr of el.data) {
+    if (tr.visible === 'legendonly' || tr.visible === false) continue;
+    if (!tr.hovertemplate || !tr.x || !tr.x.length) continue;          // заливки, служебные ряды
+    if (tr.meta && tr.meta !== 'overlay') continue;
+    const i = nearestPoint(tr, ms);
+    if (i < 0) continue;
+    const color = (tr.line && tr.line.color) || (tr.marker && tr.marker.color) || css('--text');
+    rows.push({ tr, i, color, axis: tr.yaxis === 'y2' ? 'y2' : 'y' });
+    date = date || String(tr.x[i]).slice(0, 10);
+  }
+  return { date, rows };
+}
+
+/** Единица измерения и число знаков ряда — из его hovertemplate ('%{y:.2f} трлн ₽ · …' → ' трлн ₽', 2). */
+function unitOf(tpl) {
+  const m = tpl.match(/%\{y(?::([^}]*))?\}([^·(]*)/);  // единица — до « ·» или «(»
+  const digits = m && m[1] && /\.(\d+)/.test(m[1]) ? Number(m[1].match(/\.(\d+)/)[1]) : 2;
+  return { unit: m ? m[2].trimEnd() : '', digits };
+}
+
+/** Ставит кружки (цвет линии) в точках на кривых: points = { y: [...], y2: [...] }. */
+function setMarkers(el, points, shapes) {
+  const upd = { x: [], y: [], 'marker.color': [] }, idx = [];
+  el.data.forEach((t, i) => {
+    if (t.meta !== 'cursor' && t.meta !== 'cursor2') return;
+    const p = points[t.meta === 'cursor' ? 'y' : 'y2'];
+    upd.x.push(p.map((q) => q.x)); upd.y.push(p.map((q) => q.y)); upd['marker.color'].push(p.map((q) => q.c)); idx.push(i);
+  });
+  state.syncing = true;
+  return Promise.all([Plotly.relayout(el, { shapes }), idx.length ? Plotly.restyle(el, upd, idx) : null])
+    .finally(() => { state.syncing = false; });
+}
+
+/** Ставит блок значений там, где он не заденет линии: справа, слева или между ними. */
+function placeBox(el, box, lines) {
+  const W = el.getBoundingClientRect().width, gap = 10;
+  const a = Math.min(...lines), b = Math.max(...lines);
+  const spaces = [['right', W - b], ['left', a], ['between', lines.length > 1 ? b - a : 0]];
+  const [where, room] = spaces.reduce((best, cur) => (cur[1] > best[1] ? cur : best));
+  box.style.maxWidth = `${Math.max(130, room - 2 * gap)}px`;
+  box.style.top = `${el._fullLayout._size.t + 4}px`;
+  box.style.left = where === 'right' ? `${b + gap}px` : where === 'between' ? `${a + gap}px` : '';
+  box.style.right = where === 'left' ? `${W - a + gap}px` : '';
+}
+
+/**
+ * Замер между двумя датами: две полупрозрачные линии, подсветка промежутка, кружки на кривых
+ * и блок с изменением каждого ряда — в единицах ряда и в процентах.
+ * Телефон: удерживать два пальца на графике; компьютер: Shift + протянуть мышью.
+ */
+function showMeasure(el, clientX1, clientX2) {
+  const xa = el._fullLayout.xaxis;
+  const left = el.getBoundingClientRect().left + xa._offset;
+  const px = [clientX1, clientX2].map((x) => Math.min(xa._length, Math.max(0, x - left))).sort((p, q) => p - q);
+  const A = valuesAt(el, xa.p2l(px[0])), B = valuesAt(el, xa.p2l(px[1]));
+  if (!A.date || !B.date || A.date === B.date) return;
+
+  const points = { y: [], y2: [] };
+  const rows = [];
+  for (const ra of A.rows) {
+    const rb = B.rows.find((r) => r.tr === ra.tr);
+    if (!rb) continue;
+    const ya = ra.tr.y[ra.i], yb = rb.tr.y[rb.i];
+    points[ra.axis].push({ x: ra.tr.x[ra.i], y: ya, c: ra.color }, { x: rb.tr.x[rb.i], y: yb, c: ra.color });
+    const { unit, digits } = unitOf(ra.tr.hovertemplate);
+    const dUnit = unit.trim() === '%' ? ' п.п.' : unit;              // для процентных рядов разница — в п.п.
+    const pct = ya > 0 && yb > 0 ? ` (${fmtNum((yb / ya - 1) * 100, 1, true)}%)` : '';
+    rows.push(`<div class="row"><span class="swatch" style="background:${ra.color}"></span>
+      <span class="name">${escapeHtml(ra.tr.name)}</span>
+      <b>${fmtNum(ya, digits)} → ${fmtNum(yb, digits)}${escapeHtml(unit)} · ${fmtNum(yb - ya, digits, true)}${escapeHtml(dUnit)}${pct}</b></div>`);
+  }
+  if (!rows.length) return;
+
+  const line = (x) => ({ type: 'line', name: 'measure', xref: 'x', yref: 'paper', x0: x, x1: x, y0: 0, y1: 1,
+    line: { color: withAlpha('--text', 0.4), width: 1 } });
+  const shapes = (el.layout.shapes || []).filter((sh) => sh.name !== 'cursor' && sh.name !== 'measure');
+  shapes.push({ type: 'rect', name: 'measure', xref: 'x', yref: 'paper', x0: A.date, x1: B.date, y0: 0, y1: 1,
+    fillcolor: withAlpha('--accent', 0.08), line: { width: 0 }, layer: 'below' }, line(A.date), line(B.date));
+  setMarkers(el, points, shapes);
+
+  const days = daysBetween(A.date, B.date);
+  const span = days >= 730 ? `${fmtNum(days / 365.25, 1)} г.` : `${fmtNum(days)} дн.`;
+  const box = document.getElementById(`${el.id}-cursor`);
+  box.innerHTML = `<div class="date">${fmtDate(A.date)} → ${fmtDate(B.date)} · ${span}</div>${rows.join('')}
+    <div class="close">${TOUCH.matches ? 'коснитесь' : 'нажмите'}, чтобы скрыть</div>`;
+  box.hidden = false;
+  placeBox(el, box, [A.date, B.date].map((d) => xa._offset + xa.l2p(toDate(d).getTime())));
+  box.onclick = () => hideCursor(el);
+}
+
 function hideCursorBox(el) {
   const box = document.getElementById(`${el.id}-cursor`);
   if (box) box.hidden = true;
@@ -1940,12 +2127,12 @@ function hideCursor(el) {
   hideCursorBox(el);
   if (!el.data || !el.layout) return;
   const idx = el.data.map((t, i) => (t.meta === 'cursor' || t.meta === 'cursor2' ? i : -1)).filter((i) => i >= 0);
-  const hasLine = (el.layout.shapes || []).some((sh) => sh.name === 'cursor');
+  const hasLine = (el.layout.shapes || []).some((sh) => sh.name === 'cursor' || sh.name === 'measure');
   if (!idx.length && !hasLine) return;
   state.syncing = true;
   Promise.all([
     idx.length ? Plotly.restyle(el, { x: [[]], y: [[]] }, idx) : null,
-    hasLine ? Plotly.relayout(el, { shapes: el.layout.shapes.filter((sh) => sh.name !== 'cursor') }) : null,
+    hasLine ? Plotly.relayout(el, { shapes: el.layout.shapes.filter((sh) => sh.name !== 'cursor' && sh.name !== 'measure') }) : null,
   ]).finally(() => { state.syncing = false; });
 }
 
@@ -1955,59 +2142,30 @@ function hideCursor(el) {
  */
 function showCursor(el, clientX) {
   const xa = el._fullLayout.xaxis;
-  const wrapRect = el.getBoundingClientRect();
-  const px = clientX - wrapRect.left - xa._offset;
+  const px = clientX - el.getBoundingClientRect().left - xa._offset;
   if (px < 0 || px > xa._length) return;
-  const ms = xa.p2l(px);
-
-  const rows = [], points = { y: { x: [], y: [], c: [] }, y2: { x: [], y: [], c: [] } };
-  let date = null;
-  for (const tr of el.data) {
-    if (tr.visible === 'legendonly' || tr.visible === false) continue;
-    if (!tr.hovertemplate || !tr.x || !tr.x.length) continue;          // заливки, служебные ряды
-    if (tr.meta && tr.meta !== 'overlay') continue;
-    const i = nearestPoint(tr, ms);
-    if (i < 0) continue;
-    const color = (tr.line && tr.line.color) || (tr.marker && tr.marker.color) || css('--text');
-    const axis = tr.yaxis === 'y2' ? 'y2' : 'y';
-    points[axis].x.push(tr.x[i]);
-    points[axis].y.push(tr.y[i]);
-    points[axis].c.push(color);
-    date = date || String(tr.x[i]).slice(0, 10);
-    const cd = Array.isArray(tr.customdata) ? tr.customdata[i] : undefined;
-    rows.push(`<div class="row"><span class="swatch" style="background:${color}"></span>
-      <span class="name">${escapeHtml(tr.name)}</span><b>${escapeHtml(fillTemplate(tr.hovertemplate, tr.y[i], cd))}</b></div>`);
-  }
+  const { date, rows } = valuesAt(el, xa.p2l(px));
   if (!rows.length) { hideCursor(el); return; }
 
   // Линия — на дате найденных значений, чтобы проходила точно через кружки
-  const lineX = date;
-  const shapes = (el.layout.shapes || []).filter((sh) => sh.name !== 'cursor');
+  const shapes = (el.layout.shapes || []).filter((sh) => sh.name !== 'cursor' && sh.name !== 'measure');
   shapes.push({
-    type: 'line', name: 'cursor', xref: 'x', yref: 'paper', x0: lineX, x1: lineX, y0: 0, y1: 1,
+    type: 'line', name: 'cursor', xref: 'x', yref: 'paper', x0: date, x1: date, y0: 0, y1: 1,
     line: { color: withAlpha('--text', 0.35), width: 1 },
   });
-  const upd = { x: [], y: [], 'marker.color': [] }, idx = [];
-  el.data.forEach((t, i) => {
-    if (t.meta !== 'cursor' && t.meta !== 'cursor2') return;
-    const p = points[t.meta === 'cursor' ? 'y' : 'y2'];
-    upd.x.push(p.x); upd.y.push(p.y); upd['marker.color'].push(p.c); idx.push(i);
-  });
-  state.syncing = true;
-  Promise.all([Plotly.relayout(el, { shapes }), idx.length ? Plotly.restyle(el, upd, idx) : null])
-    .finally(() => { state.syncing = false; });
+  const points = { y: [], y2: [] };
+  for (const r of rows) points[r.axis].push({ x: r.tr.x[r.i], y: r.tr.y[r.i], c: r.color });
+  setMarkers(el, points, shapes);
 
   // Блок со значениями — с той стороны от линии, где больше места
   const box = document.getElementById(`${el.id}-cursor`);
-  box.innerHTML = `<div class="date">${fmtDate(date)}</div>${rows.join('')}<div class="close">коснитесь, чтобы скрыть</div>`;
+  box.innerHTML = `<div class="date">${fmtDate(date)}</div>${rows.map((r) => {
+    const cd = Array.isArray(r.tr.customdata) ? r.tr.customdata[r.i] : undefined;
+    return `<div class="row"><span class="swatch" style="background:${r.color}"></span>
+      <span class="name">${escapeHtml(r.tr.name)}</span><b>${escapeHtml(fillTemplate(r.tr.hovertemplate, r.tr.y[r.i], cd))}</b></div>`;
+  }).join('')}<div class="close">коснитесь, чтобы скрыть</div>`;
   box.hidden = false;
-  const lineLeft = xa._offset + xa.l2p(toDate(date).getTime());  // от левого края графика, px
-  const gap = 10;
-  const onRight = lineLeft < wrapRect.width / 2;
-  box.style.maxWidth = `${Math.max(120, (onRight ? wrapRect.width - lineLeft : lineLeft) - gap - 4)}px`;
-  box.style.top = `${el._fullLayout._size.t + 4}px`;
-  box.style.left = onRight ? `${lineLeft + gap}px` : '';
-  box.style.right = onRight ? '' : `${wrapRect.width - lineLeft + gap}px`;
+  placeBox(el, box, [xa._offset + xa.l2p(toDate(date).getTime())]);
   box.onclick = () => hideCursor(el);
 }
 
@@ -2038,8 +2196,13 @@ function bindTouchGestures(el) {
     if (!TOUCH.matches || !el._fullLayout) return;
     const [a, b] = xa().range.map((r) => xa().r2l(r));
     if (e.touches.length === 2) {
+      // Два пальца: если в течение 0,35 с не двигаются — замер между ними, иначе — масштаб.
       const [t1, t2] = e.touches;
-      g = { kind: 'pinch', a, b, dist: Math.abs(t1.clientX - t2.clientX) || 1, mid: (t1.clientX + t2.clientX) / 2 };
+      clearTimeout(g && g.timer);
+      g = { kind: 'two', a, b, dist: Math.abs(t1.clientX - t2.clientX) || 1, mid: (t1.clientX + t2.clientX) / 2 };
+      g.timer = setTimeout(() => {
+        if (g && g.kind === 'two') { g.kind = 'measure'; showMeasure(el, t1.clientX, t2.clientX); }
+      }, 350);
     } else if (e.touches.length === 1) {
       g = { kind: 'pending', a, b, x: e.touches[0].clientX, y: e.touches[0].clientY };
     }
@@ -2054,6 +2217,22 @@ function bindTouchGestures(el) {
       if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;            // ещё касание, а не жест
       if (Math.abs(dy) > Math.abs(dx)) { g = null; return; }        // вертикаль — прокрутка страницы
       g.kind = 'pan';
+    }
+    if (g.kind === 'two' && e.touches.length === 2) {
+      const [t1, t2] = e.touches;
+      const moved = Math.abs((Math.abs(t1.clientX - t2.clientX) || 1) - g.dist) > 12
+        || Math.abs((t1.clientX + t2.clientX) / 2 - g.mid) > 12;
+      if (!moved) { if (e.cancelable) e.preventDefault(); return; }
+      clearTimeout(g.timer);
+      g.kind = 'pinch';
+    }
+    if (g.kind === 'measure') {
+      if (e.touches.length === 2) {
+        const [t1, t2] = e.touches;
+        if (!frame) frame = requestAnimationFrame(() => { frame = 0; showMeasure(el, t1.clientX, t2.clientX); });
+      }
+      if (e.cancelable) e.preventDefault();
+      return;
     }
     if (!g.cursorHidden) { hideCursor(el); g.cursorHidden = true; }  // при сдвиге/масштабе подсказка не нужна
     if (g.kind === 'pan' && e.touches.length === 1) {
@@ -2076,17 +2255,88 @@ function bindTouchGestures(el) {
   }, { passive: false });
 
   const finish = () => {
+    if (g) clearTimeout(g.timer);
     if (g && g.cur) setRange(toIso(new Date(g.cur[0])), toIso(new Date(g.cur[1])));
-    else if (g && g.kind === 'pending') showCursor(el, g.x);  // касание без движения — значения на дату
+    else if (g && g.kind === 'pending') {
+      // Касание: обычный график — развернуть на весь экран, развёрнутый — значения на дату.
+      if (state.fs === el.id) showCursor(el, g.x); else openFullscreen(el.id);
+    }
     g = null;
   };
   el.addEventListener('touchend', (e) => { if (!e.touches.length) finish(); });
-  el.addEventListener('touchcancel', () => { g = null; });
+  el.addEventListener('touchcancel', () => { if (g) clearTimeout(g.timer); g = null; });
+}
+
+/**
+ * Мышь: клик по графику (без протягивания) — развернуть на весь экран;
+ * Shift + протянуть — замер изменения между двумя датами (встроенный зум Plotly при этом не срабатывает).
+ */
+function bindMouse(el) {
+  el.addEventListener('mousedown', (e) => {
+    if (TOUCH.matches || e.button !== 0) return;
+    if (e.target.closest('.legend, .modebar, .cursor-box')) return;
+    const inPlot = e.target.closest('.nsewdrag, .draglayer');
+    if (e.shiftKey && inPlot) {
+      e.preventDefault();
+      e.stopPropagation();                       // не даём Plotly начать рамку зума
+      const x0 = e.clientX;
+      let frame = 0;
+      const move = (ev) => {
+        if (!frame) frame = requestAnimationFrame(() => { frame = 0; showMeasure(el, x0, ev.clientX); });
+      };
+      const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', up);
+      return;
+    }
+    if (!inPlot || state.fs === el.id) return;
+    const x0 = e.clientX, y0 = e.clientY;
+    const up = (ev) => {
+      window.removeEventListener('mouseup', up);
+      if (Math.abs(ev.clientX - x0) < 4 && Math.abs(ev.clientY - y0) < 4) openFullscreen(el.id);
+    };
+    window.addEventListener('mouseup', up);
+  }, true);
+}
+
+// ---------------------------------------------------------------------------
+// Весь экран
+// ---------------------------------------------------------------------------
+
+function openFullscreen(id) {
+  if (state.fs) closeFullscreen();
+  const panel = document.getElementById(`panel-${id}`);
+  if (!panel) return;
+  state.fs = id;
+  panel.classList.add('fs');
+  document.body.classList.add('fs-open');
+  const btn = panel.querySelector('.fs-btn');
+  btn.textContent = '×';
+  btn.setAttribute('aria-label', 'Свернуть');
+  btn.title = 'Свернуть (Esc)';
+  renderChart(CHARTS.find((c) => c.id === id));
+  requestAnimationFrame(() => Plotly.Plots.resize(document.getElementById(id)));  // ширина без полосы прокрутки страницы
+}
+
+function closeFullscreen() {
+  const id = state.fs;
+  if (!id) return;
+  state.fs = null;
+  const panel = document.getElementById(`panel-${id}`);
+  panel.classList.remove('fs');
+  document.body.classList.remove('fs-open');
+  const btn = panel.querySelector('.fs-btn');
+  btn.textContent = '⛶';
+  btn.setAttribute('aria-label', 'Открыть на весь экран');
+  btn.title = 'На весь экран';
+  renderChart(CHARTS.find((c) => c.id === id));
+  panel.scrollIntoView({ block: 'center' });
 }
 
 function bindChartEvents(el, def) {
   el.dataset.bound = '1';
   bindTouchGestures(el);
+  bindMouse(el);
 
   // Зум по X на любом графике → применяем ко всем.
   el.on('plotly_relayout', (ev) => {
@@ -2167,9 +2417,12 @@ function renderTab() {
 function switchTab(tab) {
   state.tab = tab;
   document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
-  for (const t of ['us', 'ru']) {
-    $(`#cards-${t}`).hidden = t !== tab;
-    $(`#charts-${t}`).hidden = t !== tab;
+  if (state.fs) closeFullscreen();
+  for (const t of Object.keys(TAB_BANDS)) {
+    for (const part of ['toc', 'cards', 'charts']) {
+      const node = document.getElementById(`${part}-${t}`);
+      if (node) node.hidden = t !== tab;
+    }
   }
   fillOverlayOptions();
   try { localStorage.setItem('semkin-tab', tab); } catch (e) { /* хранилище недоступно — не страшно */ }
@@ -2357,6 +2610,30 @@ function init() {
   });
 
   document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+
+  // Весь экран: кнопка ⛶ / ×, Esc, перерисовка при повороте экрана.
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.fs-btn');
+    if (btn) (state.fs === btn.dataset.chart ? closeFullscreen() : openFullscreen(btn.dataset.chart));
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeFullscreen(); });
+  window.addEventListener('resize', () => {
+    if (state.fs) renderChart(CHARTS.find((c) => c.id === state.fs));
+  });
+
+  // Переходы из оглавления и карточек: сворачиваем полноэкранный режим и подсвечиваем цель.
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('a[href^="#"]');
+    if (!a) return;
+    const target = document.querySelector(a.getAttribute('href'));
+    if (!target) return;
+    e.preventDefault();
+    if (state.fs) closeFullscreen();
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    target.classList.remove('flash');
+    void target.offsetWidth;                        // перезапуск анимации
+    target.classList.add('flash');
+  });
 
   // Подсказки карточек: открываются и закрываются касанием (на телефоне нет наведения,
   // а iPhone не даёт кнопке фокус при касании). Касание вне подсказки закрывает её.
