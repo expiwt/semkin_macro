@@ -248,7 +248,15 @@ body.fs-open { overflow: hidden; }
   padding: 6px 9px; font-size: 12px; line-height: 1.4;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
-.cursor-box .date { font-weight: 600; margin-bottom: 2px; }
+.cursor-box .date { font-weight: 600; margin-bottom: 2px; display: flex; align-items: center; gap: 8px; }
+.cursor-box .x {
+  margin-left: auto; width: 26px; height: 26px; padding: 0; border-radius: 50%;
+  font-size: 18px; line-height: 24px; text-align: center; pointer-events: auto;
+}
+/* Сенсорный экран: касания проходят сквозь блок к графику, закрывается только крестиком */
+html.touch .cursor-box { pointer-events: none; opacity: 0.7; }
+/* Весь экран на сенсорном экране: все жесты на графике обрабатывает app.js */
+html.touch .panel.fs .chart { touch-action: none; }
 .cursor-box.solid { opacity: 1; }
 @media (hover: hover) { .cursor-box:hover { opacity: 1; } }
 /* Стандартная подсказка Plotly не нужна — значения показывает свой блок */

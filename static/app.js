@@ -299,6 +299,7 @@ const state = {
   overlay: { us: '', ru: '' },  // наложенный индекс для каждой вкладки
   syncing: false,     // защита от рекурсии при синхронизации зума между графиками
   fs: null,           // id графика, развёрнутого на весь экран
+  hoverChart: null,   // id графика под мышью (для стрелок)
 };
 
 const OVERLAYS = {
@@ -1268,7 +1269,8 @@ const NARROW = matchMedia('(max-width: 640px)');
 // Сенсорный экран (телефон, планшет) — жесты вместо мыши, см. bindTouchGestures().
 const TOUCH = matchMedia('(pointer: coarse)');
 
-const PLOT_CONFIG = { responsive: true, displaylogo: false, locale: 'ru', modeBarButtonsToRemove: ['lasso2d', 'select2d'] };
+// doubleClick: false — двойной клик обрабатываем сами (отдалить), а не сбрасываем масштаб Plotly.
+const PLOT_CONFIG = { responsive: true, displaylogo: false, locale: 'ru', doubleClick: false, modeBarButtonsToRemove: ['lasso2d', 'select2d'] };
 
 /**
  * Заливка областей ниже нуля — наглядно показывает периоды инверсии.
@@ -2428,7 +2430,9 @@ function renderChart(def, tab = state.tab) {
     }
     hideCursorBox(el);
     clearDots(el);
-    Plotly.react(el, data, layout, { ...PLOT_CONFIG, displayModeBar: !NARROW.matches && !TOUCH.matches && state.fs !== def.id });
+    const keep = state.fs === def.id ? el._cursorMs : null;    // выбранная точка в полноэкранном режиме
+    Plotly.react(el, data, layout, { ...PLOT_CONFIG, displayModeBar: !NARROW.matches && !TOUCH.matches && state.fs !== def.id })
+      .then(() => { if (keep) showCursorAt(el, keep); });
     if (!el.dataset.bound) bindChartEvents(el, def);
 
     let srcLine = `Источник: ${srcHtml(def.source)}; полосы — ${srcHtml(TAB_BANDS[tab].source)}`;
@@ -2587,8 +2591,8 @@ function showMeasure(el, clientX1, clientX2) {
   const days = daysBetween(A.date, B.date);
   const span = days >= 730 ? `${fmtNum(days / 365.25, 1)} г.` : `${fmtNum(days)} дн.`;
   const box = document.getElementById(`${el.id}-cursor`);
-  box.innerHTML = `<div class="date">${fmtDate(A.date)} → ${fmtDate(B.date)} · ${span}</div>${rows.join('')}
-    <div class="close">${TOUCH.matches ? 'коснитесь — ярче, ещё раз — скрыть' : 'нажмите, чтобы скрыть'}</div>`;
+  box.innerHTML = `<div class="date">${fmtDate(A.date)} → ${fmtDate(B.date)} · ${span}${closeBtn()}</div>${rows.join('')}
+    ${TOUCH.matches ? '' : '<div class="close">нажмите, чтобы скрыть</div>'}`;
   box.hidden = false;
   box.classList.add('measuring');               // пока открыт замер, наведение его не перезаписывает
   placeBox(el, box, [A.date, B.date].map((d) => xa._offset + xa.l2p(toDate(d).getTime())));
@@ -2605,6 +2609,7 @@ function hideCursorBox(el) {
 
 /** Убирает подсказку: точки, линии замера и блок со значениями. */
 function hideCursor(el) {
+  el._cursorMs = null;
   hideCursorBox(el);
   clearDots(el);
   if (!el.data || !el.layout) return;
@@ -2628,11 +2633,11 @@ function fillValuesBox(el, date, rows) {
   };
   const sorted = [...rows].sort((a, b) => py(a) - py(b));       // меньше пиксель — выше на экране
   const box = document.getElementById(`${el.id}-cursor`);
-  box.innerHTML = `<div class="date">${fmtDate(date)}</div>${sorted.map((r) => {
+  box.innerHTML = `<div class="date">${fmtDate(date)}${closeBtn()}</div>${sorted.map((r) => {
     const cd = Array.isArray(r.tr.customdata) ? r.tr.customdata[r.i] : undefined;
     return `<div class="row"><span class="swatch" style="background:${r.color}"></span>
       <span class="name">${escapeHtml(r.tr.name)}</span><b>${escapeHtml(fillTemplate(r.tr.hovertemplate, r.tr.y[r.i], cd))}</b></div>`;
-  }).join('')}${TOUCH.matches ? '<div class="close">коснитесь — ярче, ещё раз — скрыть</div>' : ''}`;
+  }).join('')}`;
   box.hidden = false;
   box.classList.remove('measuring');
   return box;
@@ -2659,13 +2664,18 @@ function placeBoxCorner(el, box, lineX) {
   if (lineX + wrapLeft > b.left - 12 && lineX + wrapLeft < b.right + 12) put(el._boxSide === 'left' ? 'right' : 'left');
 }
 
-/** Касание блока значений: первое — сделать ярким, второе — убрать. Мышь: клик — убрать. */
+/** Кнопка «×» в блоке значений (на сенсорном экране — единственный способ закрыть блок). */
+const closeBtn = () => (TOUCH.matches ? '<button class="x" aria-label="Скрыть">×</button>' : '');
+
+/**
+ * Закрытие блока значений. Сенсорный экран: блок пропускает касания к графику (можно выбрать
+ * точку под ним), закрывается крестиком. Мышь: блок яркий при наведении, клик — закрыть.
+ */
 function bindBoxTap(el, box) {
   box.classList.remove('solid');
-  box.onclick = () => {
-    if (TOUCH.matches && !box.classList.contains('solid')) box.classList.add('solid');
-    else hideCursor(el);
-  };
+  const x = box.querySelector('.x');
+  if (x) x.onclick = (e) => { e.stopPropagation(); hideCursor(el); };
+  box.onclick = TOUCH.matches ? null : () => hideCursor(el);
 }
 
 /** Касание графика (сенсорный экран): точки цвета линий и полупрозрачный блок значений. */
@@ -2673,8 +2683,15 @@ function showCursor(el, clientX) {
   const xa = el._fullLayout.xaxis;
   const px = clientX - el.getBoundingClientRect().left - xa._offset;
   if (px < 0 || px > xa._length) return;
-  const { date, rows } = valuesAt(el, xa.p2l(px));
+  showCursorAt(el, xa.p2l(px));
+}
+
+/** То же для даты (мс). Дата запоминается, чтобы подсказка пережила перерисовку графика. */
+function showCursorAt(el, ms) {
+  const xa = el._fullLayout.xaxis;
+  const { date, rows } = valuesAt(el, ms);
   if (!rows.length) { hideCursor(el); return; }
+  el._cursorMs = ms;
 
   const shapes = (el.layout.shapes || []).filter((sh) => sh.name !== 'cursor' && sh.name !== 'measure');
   const points = { y: [], y2: [] };
@@ -2722,6 +2739,17 @@ function bindTouchGestures(el) {
       }, 350);
     } else if (e.touches.length === 1) {
       g = { kind: 'pending', a, b, x: e.touches[0].clientX, y: e.touches[0].clientY };
+      // Полноэкранный режим: палец удержан на месте 0,28 с — «ведение»: точки следуют за пальцем.
+      if (state.fs === el.id) {
+        const st = g;
+        st.hold = setTimeout(() => {
+          if (g === st && st.kind === 'pending') {
+            st.kind = 'scrub';
+            showCursor(el, st.x);
+            if (navigator.vibrate) navigator.vibrate(8);
+          }
+        }, 280);
+      }
     }
   }, { passive: true });
 
@@ -2729,9 +2757,16 @@ function bindTouchGestures(el) {
     if (!g) return;
     const span = g.b - g.a;
     const len = xa()._length;
+    if (g.kind === 'scrub') {
+      const x = e.touches[0].clientX;
+      if (!frame) frame = requestAnimationFrame(() => { frame = 0; showCursor(el, x); });
+      if (e.cancelable) e.preventDefault();
+      return;
+    }
     if (g.kind === 'pending') {
       const dx = e.touches[0].clientX - g.x, dy = e.touches[0].clientY - g.y;
       if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;            // ещё касание, а не жест
+      clearTimeout(g.hold);
       if (Math.abs(dy) > Math.abs(dx)) { g = null; return; }        // вертикаль — прокрутка страницы
       g.kind = 'pan';
     }
@@ -2772,7 +2807,8 @@ function bindTouchGestures(el) {
   }, { passive: false });
 
   const finish = () => {
-    if (g) clearTimeout(g.timer);
+    if (g) { clearTimeout(g.timer); clearTimeout(g.hold); }
+    if (g && g.kind === 'scrub') { g = null; return; }        // точки остаются там, где отпустили палец
     if (g && g.cur) setRange(toIso(new Date(g.cur[0])), toIso(new Date(g.cur[1])));
     else if (g && g.kind === 'pending') {
       // Касание: обычный график — развернуть на весь экран, развёрнутый — значения на дату.
@@ -2781,7 +2817,7 @@ function bindTouchGestures(el) {
     g = null;
   };
   el.addEventListener('touchend', (e) => { if (!e.touches.length) finish(); });
-  el.addEventListener('touchcancel', () => { if (g) clearTimeout(g.timer); g = null; });
+  el.addEventListener('touchcancel', () => { if (g) { clearTimeout(g.timer); clearTimeout(g.hold); } g = null; });
 }
 
 /**
@@ -2810,10 +2846,100 @@ function bindMouse(el) {
     const x0 = e.clientX, y0 = e.clientY;
     const up = (ev) => {
       window.removeEventListener('mouseup', up);
-      if (Math.abs(ev.clientX - x0) < 4 && Math.abs(ev.clientY - y0) < 4) openFullscreen(el.id);
+      if (Math.abs(ev.clientX - x0) < 4 && Math.abs(ev.clientY - y0) < 4) {
+        clearTimeout(el._fsTimer);
+        el._fsTimer = setTimeout(() => openFullscreen(el.id), 260);   // двойной клик успеет отменить
+      }
     };
     window.addEventListener('mouseup', up);
   }, true);
+
+  // Двойной клик — отдалить в 2 раза вокруг точки клика (показать больше лет).
+  el.addEventListener('dblclick', (e) => {
+    if (TOUCH.matches) return;
+    clearTimeout(el._fsTimer);
+    e.preventDefault();
+    zoomBy(el, 2, e.clientX);
+  });
+
+  // Тачпад: свайп двумя пальцами вбок — сдвиг; щипок (браузер присылает wheel с ctrlKey) — масштаб.
+  // Вертикальная прокрутка колесом/тачпадом остаётся прокруткой страницы.
+  el.addEventListener('wheel', (e) => {
+    if (TOUCH.matches || !el._fullLayout) return;
+    const px = e.deltaMode === 1 ? 16 : 1;                       // строки → пиксели (Firefox)
+    const dx = (e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX) * px, dy = e.deltaY * px;
+    if (!e.ctrlKey && Math.abs(dx) <= Math.abs(dy)) return;
+    e.preventDefault();
+    const xa = el._fullLayout.xaxis;
+    const [a, b] = el._wheel || xa.range.map((r) => xa.r2l(r));
+    let range;
+    if (e.ctrlKey) {
+      const anchor = xa.p2l(e.clientX - el.getBoundingClientRect().left - xa._offset);
+      range = scaleRange([a, b], Math.exp(dy * 0.01), anchor);
+    } else {
+      const shift = (dx / xa._length) * (b - a);
+      range = [a + shift, b + shift];
+    }
+    previewRange(el, range);
+  }, { passive: false });
+
+  el.addEventListener('mouseenter', () => { state.hoverChart = el.id; });
+  el.addEventListener('mouseleave', () => { if (state.hoverChart === el.id) state.hoverChart = null; });
+}
+
+// ---------------------------------------------------------------------------
+// Масштаб и сдвиг: двойной клик, стрелки, тачпад
+// ---------------------------------------------------------------------------
+
+/** Новый диапазон дат: масштаб factor (>1 — отдалить) вокруг даты anchor (мс), с ограничениями. */
+function scaleRange([a, b], factor, anchor = (a + b) / 2) {
+  const maxSpan = toDate(state.ind.lastDate) - toDate(state.ind.firstDate);
+  const span = Math.min(Math.max((b - a) * factor, 30 * DAY_MS), maxSpan);
+  const f = Math.min(1, Math.max(0, (anchor - a) / (b - a)));
+  return [anchor - f * span, anchor + (1 - f) * span];
+}
+
+const msToIso = (ms) => toIso(new Date(ms));
+
+/** Масштаб всех графиков вкладки вокруг точки clientX графика el (или вокруг центра). */
+function zoomBy(el, factor, clientX) {
+  const xa = el._fullLayout.xaxis;
+  const [a, b] = xa.range.map((r) => xa.r2l(r));
+  const anchor = clientX == null ? undefined : xa.p2l(clientX - el.getBoundingClientRect().left - xa._offset);
+  const [na, nb] = scaleRange([a, b], factor, anchor);
+  setRange(msToIso(na), msToIso(nb));
+}
+
+/** Сдвиг всех графиков вкладки на долю ширины (минус — в прошлое). */
+function panBy(el, fraction) {
+  const xa = el._fullLayout.xaxis;
+  const [a, b] = xa.range.map((r) => xa.r2l(r));
+  const shift = fraction * (b - a);
+  setRange(msToIso(a + shift), msToIso(b + shift));
+}
+
+/**
+ * Плавный предпросмотр при прокрутке тачпадом: перерисовывается только этот график,
+ * а через 0,2 с после последнего движения период применяется ко всем графикам.
+ */
+function previewRange(el, range) {
+  el._wheel = range;
+  hideCursorBox(el);
+  clearDots(el);
+  if (!el._wheelFrame) {
+    el._wheelFrame = requestAnimationFrame(() => {
+      el._wheelFrame = 0;
+      const toStr = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+      state.syncing = true;
+      Plotly.relayout(el, { 'xaxis.range': el._wheel.map(toStr) }).finally(() => { state.syncing = false; });
+    });
+  }
+  clearTimeout(el._wheelTimer);
+  el._wheelTimer = setTimeout(() => {
+    const [a, b] = el._wheel;
+    el._wheel = null;
+    setRange(msToIso(a), msToIso(b));
+  }, 200);
 }
 
 // ---------------------------------------------------------------------------
@@ -2897,7 +3023,7 @@ function bindChartEvents(el, def) {
   };
   el.on('plotly_unhover', () => { if (!TOUCH.matches) hideLater(); });
   box.addEventListener('mouseleave', (e) => { if (!TOUCH.matches && !el.contains(e.relatedTarget)) hideLater(); });
-  el.on('plotly_relayout', () => clearDots(el));  // после зума старые позиции точек неверны
+  el.on('plotly_relayout', () => { if (!state.syncing) clearDots(el); });  // после зума позиции точек неверны
 
   // Клик по легенде → пересчитываем ось Y; псевдо-ряд «Рецессии» скрывает полосы.
   el.on('plotly_restyle', () => {
@@ -2917,10 +3043,14 @@ function bindChartEvents(el, def) {
 
 function setRange(from, to, presetKey = null) {
   if (from > to) [from, to] = [to, from];
-  // Не уходим за пределы всех данных (например, при сильном отдалении двумя пальцами).
+  // Не уходим за пределы всех данных. При сдвиге за край период упирается в него, сохраняя ширину.
   if (state.ind) {
-    if (from < state.ind.firstDate) from = state.ind.firstDate;
-    if (to > state.ind.lastDate) to = state.ind.lastDate;
+    const first = toDate(state.ind.firstDate).getTime(), lastMs = toDate(state.ind.lastDate).getTime();
+    let a = toDate(from).getTime(), b = toDate(to).getTime();
+    if (b > lastMs) { a -= b - lastMs; b = lastMs; }
+    if (a < first) { b = Math.min(lastMs, b + (first - a)); a = first; }
+    from = toIso(new Date(a));
+    to = toIso(new Date(b));
   }
   state.range = [from, to];
   $('#from').value = from;
@@ -3184,8 +3314,22 @@ function init() {
     const btn = e.target.closest('.fs-btn');
     if (btn) (state.fs === btn.dataset.chart ? closeFullscreen() : openFullscreen(btn.dataset.chart));
   });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeFullscreen(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { closeFullscreen(); return; }
+    if ((e.target instanceof Element && e.target.closest('input, select, textarea')) || !state.ind) return;
+    // Стрелки: ← → — сдвиг, ↑ — приблизить, ↓ — отдалить (развёрнутый график или график под мышью).
+    const el = document.getElementById(state.fs || state.hoverChart || '');
+    if (!el || !el._fullLayout) return;
+    const act = { ArrowLeft: () => panBy(el, -0.15), ArrowRight: () => panBy(el, 0.15),
+      ArrowUp: () => zoomBy(el, 0.5), ArrowDown: () => zoomBy(el, 2) }[e.key];
+    if (act) { e.preventDefault(); act(); }
+  });
+  // Перерисовка развёрнутого графика — только при смене ширины (поворот экрана, окно).
+  // Высота на телефоне скачет, когда прячется адресная строка, — из-за этого подсказка пропадала.
+  let lastWidth = window.innerWidth;
   window.addEventListener('resize', () => {
+    if (window.innerWidth === lastWidth) return;
+    lastWidth = window.innerWidth;
     if (state.fs) renderChart(CHARTS.find((c) => c.id === state.fs));
   });
 
