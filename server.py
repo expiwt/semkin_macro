@@ -113,6 +113,22 @@ FRED_SERIES = {
     "IR3TIB01CNM156N": "Китай: 3-месячная межбанковская ставка, %, помесячно",
     # Гонконг
     "DEXHKUS": "Гонконгских долларов за 1 доллар США",
+
+    # Реальная доходность акций США: инфляция и реальная доходность гособлигаций
+    "CPIAUCSL": "Индекс потребительских цен США (CPI), помесячно",
+    "DFII10": "Реальная доходность 10-летних TIPS, %",
+    # Сырьё и мировая торговля
+    "DCOILWTICO": "Нефть WTI, $/баррель",
+    "DCOILBRENTEU": "Нефть Brent, $/баррель",
+    "DHHNGSP": "Газ Henry Hub (США), $/млн БТЕ",
+    "PNGASEUUSDM": "Газ в Европе (TTF), $/млн БТЕ, помесячно (МВФ)",
+    "PNGASJPUSDM": "СПГ в Азии, $/млн БТЕ, помесячно (МВФ)",
+    "PWHEAMTUSDM": "Пшеница, $/т, помесячно (МВФ)",
+    "PMAIZMTUSDM": "Кукуруза, $/т, помесячно (МВФ)",
+    "PSOYBUSDM": "Соя, $/т, помесячно (МВФ)",
+    "PCOPPUSDM": "Медь, $/т, помесячно (МВФ)",
+    "PALLFNFINDEXM": "Глобальный индекс цен на сырьё (МВФ), помесячно",
+    "DTWEXBGS": "Индекс доллара США к валютам торговых партнёров (ФРС)",
 }
 
 # Ограничиваем одновременные запросы к одному хосту.
@@ -577,6 +593,10 @@ def fetch_moex_indices(_api_key, prev):
 
 # Фьючерсы для отчёта «Открытые позиции» (FUTOI): физлица (FIZ) и юрлица (YUR).
 FUTOI_TICKERS = {
+    # Сырьё: Brent (10 и 1 баррель), газ Henry Hub (100 и 1 млн БТЕ), пшеница (1 т), золото (1 унция)
+    "BR": "Фьючерс на нефть Brent", "BM": "Фьючерс на нефть Brent (мини)",
+    "NG": "Фьючерс на газ Henry Hub", "NR": "Фьючерс на газ Henry Hub (мини)",
+    "W4": "Фьючерс на пшеницу", "GD": "Фьючерс на золото",
     "MX": "Фьючерс на индекс Мосбиржи (полный)",
     "MM": "Фьючерс на индекс Мосбиржи (мини)",
     "IMOEXF": "Вечный фьючерс на индекс Мосбиржи",
@@ -633,7 +653,8 @@ def fetch_futoi(_api_key, prev):
 
 
 # Базовые активы на сайте Мосбиржи → тикеры отчёта FUTOI.
-MOEX_SITE_ASSETS = {"MIX": "MX", "MXI": "MM", "IMOEX": "IMOEXF", "RTS": "RI", "RGBI": "RB"}
+MOEX_SITE_ASSETS = {"MIX": "MX", "MXI": "MM", "IMOEX": "IMOEXF", "RTS": "RI", "RGBI": "RB",
+                    "BR": "BR", "BRM": "BM", "NG": "NG", "NGM": "NR", "WHEAT": "W4", "GOLD": "GD"}
 
 
 def fetch_moex_open_positions(start, end):
@@ -990,6 +1011,66 @@ def fetch_hkma(_api_key, prev):
     return [make_series(sid, names[sid], "HKMA", merge_prev(prev, sid, pts)) for sid, pts in points.items()]
 
 
+# --- Реальная доходность акций и сырьевые рынки ------------------------------------------
+
+def fetch_multpl(_api_key):
+    """
+    Прибыльная доходность S&P 500 (прибыль за 12 месяцев / цена, %) — помесячно с 1871 г.
+    Таблица multpl.com (данные Р. Шиллера и S&P); последний месяц — оценка.
+    """
+    html = http_get("https://www.multpl.com/s-p-500-earnings-yield/table/by-month", headers={"User-Agent": "Mozilla/5.0"})
+    pts = []
+    for date_s, val_s in re.findall(r"<tr[^>]*>\s*<td[^>]*>([^<]+)</td>\s*<td[^>]*>(.*?)</td>", html, re.S):
+        try:
+            d = dt.datetime.strptime(date_s.strip(), "%b %d, %Y").date()
+            v = float(re.search(r"(-?[\d.]+)%", val_s).group(1))
+        except (ValueError, AttributeError):
+            continue
+        pts.append((d.replace(day=1).isoformat(), v))
+    return [make_series("SPX_EY", "Прибыльная доходность S&P 500, %", "multpl.com", pts)]
+
+
+# Контракты CFTC (отчёт Disaggregated): рынок → код. Позиции по группам участников.
+CFTC_COMMODITIES = {
+    "WTI": "067651", "NG": "023651", "WHEAT": "001602", "CORN": "002602",
+    "SOY": "005602", "COPPER": "085692", "GOLD": "088691",
+}
+CFTC_DIS_GROUPS = {
+    "PROD": ("prod_merc_positions_long", "prod_merc_positions_short"),
+    "SWAP": ("swap_positions_long_all", "swap__positions_short_all"),
+    "MM": ("m_money_positions_long_all", "m_money_positions_short_all"),
+    "OTHER": ("other_rept_positions_long", "other_rept_positions_short"),
+    "SMALL": ("nonrept_positions_long_all", "nonrept_positions_short_all"),
+}
+
+
+def fetch_cftc_disagg(_api_key):
+    """
+    CFTC Commitments of Traders, Disaggregated (фьючерсы, с 2006 г., еженедельно): лонги и шорты
+    производителей и торговцев, своп-дилеров, управляющих фондами, прочих крупных и мелких трейдеров.
+    """
+    fields = ["report_date_as_yyyy_mm_dd", "open_interest_all"] + [f for pair in CFTC_DIS_GROUPS.values() for f in pair]
+    out = []
+    for name, code in CFTC_COMMODITIES.items():
+        params = urllib.parse.urlencode({
+            "$where": f"cftc_contract_market_code='{code}'",
+            "$select": ",".join(fields), "$order": "report_date_as_yyyy_mm_dd", "$limit": "50000",
+        })
+        rows = json.loads(http_get(f"https://publicreporting.cftc.gov/resource/72hh-3qpy.json?{params}"))
+        series_pts = {}
+        for r in rows:
+            d = r["report_date_as_yyyy_mm_dd"][:10]
+            for group, (lf, sf) in CFTC_DIS_GROUPS.items():
+                for side, f in (("L", lf), ("S", sf)):
+                    if r.get(f) not in (None, ""):
+                        series_pts.setdefault(f"CFD_{name}_{group}_{side}", {})[d] = float(r[f])
+            if r.get("open_interest_all"):
+                series_pts.setdefault(f"CFD_{name}_OI", {})[d] = float(r["open_interest_all"])
+        for sid, pts in series_pts.items():
+            out.append(make_series(sid, sid, "CFTC Disaggregated", pts.items(), note="Еженедельно, данные на вторник"))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Кэш источников
 # ---------------------------------------------------------------------------
@@ -1016,6 +1097,8 @@ SOURCES.update({
     "sse": (fetch_sse, 6 * HOUR, False),
     "ecb_mir": (fetch_ecb_mir, 24 * HOUR, False),
     "hkma": (fetch_hkma, 12 * HOUR, True),
+    "multpl": (fetch_multpl, 24 * HOUR, False),
+    "cftc_disagg": (fetch_cftc_disagg, 12 * HOUR, False),
 })
 
 

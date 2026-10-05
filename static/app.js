@@ -299,6 +299,7 @@ const state = {
   overlay: { us: '', ru: '' },  // наложенный индекс для каждой вкладки
   syncing: false,     // защита от рекурсии при синхронизации зума между графиками
   fs: null,           // id графика, развёрнутого на весь экран
+  dragmode: 'zoom',   // режим мыши в полноэкранном режиме: 'zoom' (рамка) или 'pan' (сдвиг)
   hoverChart: null,   // id графика под мышью (для стрелок)
 };
 
@@ -714,6 +715,8 @@ function computeIndicators() {
 
     // Другие страны и разделы «Недвижимость» США/России
     c: Object.fromEntries(COUNTRIES.map((cfg) => [cfg.tab, computeCountry(cfg)])),
+    spx: computeSpxReal(),
+    cm: computeCommodities(),
     re: { us: computeCountry(REAL_ESTATE.us), ru: computeCountry(REAL_ESTATE.ru) },
 
     budRev12, budOil12, budBal12,
@@ -1133,8 +1136,8 @@ function ruCards(I) {
 
 function renderCards(tab) {
   const I = state.ind;
-  const groups = tab === 'us'
-    ? [...usCards(I), ['Недвижимость', realEstateCards(I.re.us, REAL_ESTATE.us, 'us')]]
+  const groups = tab === 'cm' ? cmCards(I) : tab === 'us'
+    ? [...usCards(I), ['Реальная доходность акций', spxRealCards(I)], ['Недвижимость', realEstateCards(I.re.us, REAL_ESTATE.us, 'us')]]
     : tab === 'ru'
       ? [...ruCards(I), ['Валюта и недвижимость', [fxCard(I.re.ru.fx, REAL_ESTATE.ru.fx, 'ru-fx'), ...realEstateCards(I.re.ru, REAL_ESTATE.ru, 'ru')]]]
       : countryCards(COUNTRY[tab]);
@@ -1186,7 +1189,7 @@ function bars(s, name, colorVar, hover, extra = {}) {
 
 /** Серые вертикальные полосы рецессий (США — NBER, Россия — периоды спада ВВП). */
 function recessionShapes(tab) {
-  const periods = tab === 'ru' ? RU_CRISES : tab === 'us' ? state.ind.recessions : ((state.ind.c[tab] || {}).bands || []);
+  const periods = tab === 'ru' ? RU_CRISES : (tab === 'us' || tab === 'cm') ? state.ind.recessions : ((state.ind.c[tab] || {}).bands || []);
   return periods.map(([x0, x1]) => ({
     type: 'rect', xref: 'x', yref: 'paper', x0, x1, y0: 0, y1: 1,
     fillcolor: css('--recession'), line: { width: 0 }, layer: 'below', name: 'recession',
@@ -2191,6 +2194,277 @@ function countryCards(c) {
 }
 
 // ---------------------------------------------------------------------------
+// Реальная доходность акций США и вкладка «Сырьё и торговля»
+// ---------------------------------------------------------------------------
+
+Object.assign(SRC, {
+  spxEy: [['multpl.com: прибыльная доходность S&P 500', 'https://www.multpl.com/s-p-500-earnings-yield/table/by-month'],
+    fred('CPIAUCSL', 'инфляция CPI (FRED)'), fred('DGS10'), fred('DFII10', 'TIPS 10 лет (FRED)')],
+  oil: [fred('DCOILWTICO', 'FRED: WTI'), fred('DCOILBRENTEU', 'FRED: Brent')],
+  gas: [fred('DHHNGSP', 'FRED: Henry Hub'), fred('PNGASEUUSDM', 'газ в Европе (МВФ)'), fred('PNGASJPUSDM', 'СПГ в Азии (МВФ)')],
+  grain: [fred('PWHEAMTUSDM', 'пшеница (МВФ)'), fred('PMAIZMTUSDM', 'кукуруза (МВФ)'), fred('PSOYBUSDM', 'соя (МВФ)')],
+  copper: [fred('PCOPPUSDM', 'медь (МВФ)')],
+  cmIndex: [fred('PALLFNFINDEXM', 'индекс цен на сырьё (МВФ)')],
+  dollar: [fred('DTWEXBGS', 'индекс доллара (ФРС)')],
+  cftcDis: [['CFTC: Commitments of Traders, Disaggregated', 'https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm']],
+  moexComm: [['Мосбиржа: открытые позиции', 'https://www.moex.com/ru/derivatives/open-positions.aspx']],
+});
+
+Object.assign(EXPLAIN, {
+  spxEy: 'Прибыльная доходность S&P 500 — прибыль компаний за 12 месяцев, делённая на цену индекса (величина, обратная P/E). Сколько процентов годовых «зарабатывают» акции по текущей цене.',
+  cpiYoY: 'Инфляция в США за 12 месяцев (индекс потребительских цен CPI).',
+  realEy: 'Реальная доходность акций: прибыльная доходность минус инфляция. Около нуля и ниже — акции дорогие: по текущей цене они приносят не больше инфляции. Исторически такие периоды (начало 1970-х, конец 1970-х, 2008, 2021–2022) были неблагоприятны для рынка.',
+  erp: 'Премия акций к облигациям: прибыльная доходность минус доходность 10-летних гособлигаций. Если она низкая или отрицательная, надёжные облигации платят не меньше рискованных акций.',
+  erpReal: 'То же, но к реальной доходности защищённых от инфляции облигаций TIPS (есть с 2003 года).',
+  cmProd: 'Производители и торговцы — нефтяные и газовые компании, фермеры, переработчики, трейдеры физического товара. В основном хеджируют будущую продажу или покупку товара, поэтому обычно в нетто-шорте.',
+  cmSwap: 'Своп-дилеры — банки, которые продают клиентам внебиржевые контракты на сырьё и закрывают риск фьючерсами. По умолчанию скрыты — включите в легенде.',
+  cmMM: 'Управляющие фондами — хедж-фонды и фонды, торгующие по тренду. Главные спекулянты: их большой нетто-лонг — ставка на рост цены, резкое сокращение часто совпадает с разворотом.',
+  cmOther: 'Прочие крупные участники, не попавшие в остальные группы. По умолчанию скрыты — включите в легенде.',
+  cmSmall: 'Мелкие трейдеры ниже порога обязательной отчётности — ближайший бесплатный прокси частных инвесторов.',
+  cmMoney: 'Позиции переведены в деньги по цене товара на дату отчёта (для зерна и меди — по среднемесячной цене МВФ, поэтому оценка приблизительная). Сплошная линия — лонги, пунктир — шорты.',
+});
+
+const CM_GROUPS = [
+  { key: 'MM', name: 'Управляющие фондами', color: '--s-2y', explain: 'cmMM' },
+  { key: 'PROD', name: 'Производители и торговцы', color: '--s-30y', explain: 'cmProd' },
+  { key: 'SMALL', name: 'Мелкие трейдеры', color: '--s-3m', explain: 'cmSmall' },
+  { key: 'SWAP', name: 'Своп-дилеры', color: '--s-5y', explain: 'cmSwap', hidden: true },
+  { key: 'OTHER', name: 'Прочие крупные', color: '--muted', explain: 'cmOther', hidden: true },
+];
+
+// Перевод контрактов CFTC в деньги/физические единицы: цена (ряд FRED) × размер контракта.
+// Зерно: цена МВФ в $/т → $/бушель (пшеница и соя — 36,74 бушеля в тонне, кукуруза — 39,37).
+const CM_MARKETS = [
+  { key: 'WTI', name: 'Нефть WTI', price: 'DCOILWTICO', mult: 1000, unit: 'млрд $', note: 'контракт — 1000 баррелей' },
+  { key: 'NG', name: 'Газ Henry Hub', price: 'DHHNGSP', mult: 10000, unit: 'млрд $', note: 'контракт — 10 000 млн БТЕ' },
+  { key: 'WHEAT', name: 'Пшеница (CBOT)', price: 'PWHEAMTUSDM', mult: 5000 / 36.74, unit: 'млрд $', note: 'контракт — 5000 бушелей' },
+  { key: 'CORN', name: 'Кукуруза (CBOT)', price: 'PMAIZMTUSDM', mult: 5000 / 39.37, unit: 'млрд $', note: 'контракт — 5000 бушелей' },
+  { key: 'SOY', name: 'Соя (CBOT)', price: 'PSOYBUSDM', mult: 5000 / 36.74, unit: 'млрд $', note: 'контракт — 5000 бушелей' },
+  { key: 'COPPER', name: 'Медь (COMEX)', price: 'PCOPPUSDM', mult: 25000 / 2204.62, unit: 'млрд $', note: 'контракт — 25 000 фунтов' },
+  { key: 'GOLD', name: 'Золото (COMEX)', price: null, mult: (100 * 31.1035) / 1e6, unit: 'т', note: 'контракт — 100 унций; показано в тоннах золота' },
+];
+
+/** Позиции групп CFTC в деньгах (или тоннах для золота). */
+function cmPositions(m) {
+  const out = {};
+  const price = m.price ? series(m.price) : null;
+  for (const g of CM_GROUPS) {
+    const conv = (side) => {
+      const s = series(`CFD_${m.key}_${g.key}_${side}`);
+      return price ? asof(s, price, (c, px) => (c * m.mult * px) / 1e9) : mapValues(s, (c) => c * m.mult);
+    };
+    const L = conv('L'), Sh = conv('S');
+    const netPct = combine(combine(series(`CFD_${m.key}_${g.key}_L`), series(`CFD_${m.key}_${g.key}_S`), (l, s) => l - s),
+      series(`CFD_${m.key}_OI`), (n, oi) => (n / oi) * 100);
+    out[g.key] = { L, S: Sh, net: combine(L, Sh, (l, s) => l - s), netPct };
+  }
+  return out;
+}
+
+// Сырьевые фьючерсы Мосбиржи: тикер → размер контракта; цена — ряд FRED в $ (или null — физические единицы).
+const MOEX_COMM = [
+  { id: 'brent', name: 'Нефть Brent', tickers: { BR: 10, BM: 1 }, price: 'DCOILBRENTEU', div: 1e6, unit: 'млн $', note: 'BR — 10 баррелей, мини BM — 1 баррель' },
+  { id: 'gas', name: 'Газ Henry Hub', tickers: { NG: 100, NR: 1 }, price: 'DHHNGSP', div: 1e6, unit: 'млн $', note: 'NG — 100 млн БТЕ, мини — 1 млн БТЕ' },
+  { id: 'wheat', name: 'Пшеница', tickers: { W4: 1 }, price: null, div: 1e3, unit: 'тыс. т', note: 'контракт — 1 тонна' },
+  { id: 'gold', name: 'Золото', tickers: { GD: 31.1035 / 1e6 }, price: null, div: 1, unit: 'т', note: 'контракт — 1 тройская унция; показано в тоннах' },
+];
+
+/** Позиции физлиц и юрлиц по сырьевым фьючерсам Мосбиржи (сумма тикеров, в деньгах или единицах товара). */
+function moexComm(m) {
+  const price = m.price ? series(m.price) : null;
+  const out = {};
+  for (const g of ['FIZ', 'YUR']) {
+    out[g] = {};
+    for (const side of ['L', 'S']) {
+      const total = new Map();
+      for (const [t, mult] of Object.entries(m.tickers)) {
+        const s = series(`FUTOI_${t}_${g}_${side}`);
+        const v = price ? asof(s, price, (c, px) => (c * mult * px) / m.div) : mapValues(s, (c) => (c * mult) / m.div);
+        v.dates.forEach((d, i) => total.set(d, (total.get(d) || 0) + v.values[i]));
+      }
+      const dates = [...total.keys()].sort();
+      out[g][side] = { dates, values: dates.map((d) => total.get(d)) };
+    }
+    out[g].net = combine(out[g].L, out[g].S, (l, s) => l - s);
+  }
+  return out;
+}
+
+function computeCommodities() {
+  return {
+    wti: series('DCOILWTICO'), brent: series('DCOILBRENTEU'),
+    hh: series('DHHNGSP'), ttf: series('PNGASEUUSDM'), lng: series('PNGASJPUSDM'),
+    wheat: series('PWHEAMTUSDM'), corn: series('PMAIZMTUSDM'), soy: series('PSOYBUSDM'),
+    copper: series('PCOPPUSDM'), index: series('PALLFNFINDEXM'), dollar: series('DTWEXBGS'),
+    cftc: Object.fromEntries(CM_MARKETS.map((m) => [m.key, cmPositions(m)])),
+    moex: Object.fromEntries(MOEX_COMM.map((m) => [m.id, moexComm(m)])),
+  };
+}
+
+/** Реальная доходность S&P 500 и премия к облигациям (помесячно). */
+function computeSpxReal() {
+  const ey = series('SPX_EY');
+  const cpiYoY = yearOverYear(series('CPIAUCSL'));
+  return {
+    ey, cpiYoY,
+    real: combine(ey, cpiYoY, (e, i) => e - i, monthKey),
+    erp: asof(ey, series('DGS10'), (e, y) => e - y),
+    erpReal: asof(ey, series('DFII10'), (e, y) => e - y),
+  };
+}
+
+// Вкладка «Сырьё и торговля»: полосы — рецессии США, наложение — S&P 500.
+TAB_BANDS.cm = { legend: 'Рецессии США (NBER)', explain: 'usrec', source: SRC.nber };
+OVERLAYS.cm = [['', 'нет'], ['sp500', 'S&P 500']];
+const EXTRA_TABS = [{ tab: 'cm', name: 'Сырьё и торговля' }];
+
+// --- График реальной доходности S&P 500 — во вкладке США, сразу после индексов.
+CHARTS.splice(CHARTS.findIndex((c) => c.id === 'chart-indices') + 1, 0, {
+  tab: 'us', id: 'chart-spx-real', source: SRC.spxEy, title: 'Реальная доходность S&P 500: прибыль минус инфляция, %',
+  intro: 'Прибыльная доходность индекса (прибыль компаний / цена) минус инфляция. Около нуля и ниже — акции по текущей цене приносят не больше инфляции, то есть дороги. Помесячно, прибыльная доходность — с 1871 года, инфляция — с 1948-го.',
+  includeZero: true,
+  build: (I, tab) => ({
+    data: [
+      ...fillBelowZero(I.spx.real, '--panic', 'real'),
+      line(I.spx.real, 'Реальная доходность (прибыль − инфляция)', '--s-10y', '%{y:+.2f}%', { gap: 45, legendgroup: 'real', line: { color: css('--s-10y'), width: 2 } }),
+      line(I.spx.ey, 'Прибыльная доходность', '--s-30y', '%{y:.2f}%', { gap: 45 }),
+      line(I.spx.cpiYoY, 'Инфляция CPI', '--s-3m', '%{y:.1f}%', { gap: 45 }),
+      line(I.spx.erp, 'Премия к 10-летним облигациям', '--s-5y', '%{y:+.2f}%', { gap: 45, visible: 'legendonly' }),
+      line(I.spx.erpReal, 'Премия к TIPS', '--s-2y', '%{y:+.2f}%', { gap: 45, visible: 'legendonly' }),
+    ],
+    layout: baseLayout(tab, { unit: '%', zeroLine: true }),
+    explain: [
+      ['Реальная доходность', '--s-10y', EXPLAIN.realEy], ['Прибыльная доходность', '--s-30y', EXPLAIN.spxEy],
+      ['Инфляция CPI', '--s-3m', EXPLAIN.cpiYoY], ['Премия к облигациям', '--s-5y', EXPLAIN.erp], ['Премия к TIPS', '--s-2y', EXPLAIN.erpReal],
+    ],
+  }),
+});
+
+// --- Графики вкладки «Сырьё и торговля»
+const priceChart = (id, section, title, intro, source, lines, opts = {}) => ({
+  tab: 'cm', id, section, source, title, intro, ...opts,
+  build: (I, tab) => ({
+    data: lines.map(([key, name, color, hover]) => line(I.cm[key], name, color, hover, { gap: 45 })),
+    layout: baseLayout(tab, opts.log ? { log: true } : {}),
+    explain: lines.map(([, name, color, , text]) => [name, color, text]),
+  }),
+});
+
+CHARTS.push(
+  priceChart('cm-oil', 'Нефть', 'Нефть: WTI и Brent, $ за баррель',
+    'Мировые эталонные сорта нефти: WTI (США) и Brent (Северное море). Резкий рост цены нефти не раз предшествовал рецессиям, а обвал — сопровождал их (2008, 2020).',
+    SRC.oil, [
+      ['wti', 'WTI', '--s-10y', '$%{y:.2f}', 'Американская нефть, биржевой ориентир NYMEX.'],
+      ['brent', 'Brent', '--s-3m', '$%{y:.2f}', 'Североморская нефть — ориентир для большинства мировых сделок, в том числе для российской нефти.'],
+    ]),
+  priceChart('cm-gas', 'Газ', 'Природный газ: США, Европа, Азия, $ за млн БТЕ',
+    'Газ торгуется регионально: в США (Henry Hub) он дешёвый, в Европе (TTF) и Азии (СПГ) — дороже. Пик 2022 года в Европе — следствие сокращения поставок российского газа. США — ежедневно, Европа и Азия — помесячно (МВФ).',
+    SRC.gas, [
+      ['hh', 'Henry Hub (США)', '--s-10y', '$%{y:.2f}', 'Цена газа в США — самая низкая из трёх рынков благодаря сланцевой добыче.'],
+      ['ttf', 'Европа (TTF)', '--s-2y', '$%{y:.2f}', 'Цена газа на европейском хабе TTF.'],
+      ['lng', 'СПГ в Азии', '--s-3m', '$%{y:.2f}', 'Цена сжиженного газа для Японии и других стран Азии.'],
+    ]),
+  priceChart('cm-grain', 'Зерно и металлы', 'Зерно: пшеница, кукуруза, соя, $ за тонну',
+    'Мировые цены на основные зерновые (МВФ, помесячно). Скачки цен на зерно бьют по инфляции и по бедным странам-импортёрам: всплески 2008, 2011 и 2022 годов.',
+    SRC.grain, [
+      ['wheat', 'Пшеница', '--s-3m', '$%{y:,.0f}', 'Пшеница — главная продовольственная культура; Россия — крупнейший экспортёр.'],
+      ['corn', 'Кукуруза', '--s-30y', '$%{y:,.0f}', 'Кукуруза — корм для скота и сырьё для биотоплива.'],
+      ['soy', 'Соя', '--s-5y', '$%{y:,.0f}', 'Соя — корм и масло; главные потоки — из Бразилии и США в Китай.'],
+    ]),
+  priceChart('cm-copper', undefined, 'Медь, $ за тонну',
+    'Медь называют «доктором экономики»: она нужна в строительстве, электросетях и производстве, поэтому её цена чутко реагирует на мировой спрос и часто падает перед спадами. Помесячно (МВФ).',
+    SRC.copper, [['copper', 'Медь', '--s-2y', '$%{y:,.0f}', 'Мировая цена меди.']]),
+  priceChart('cm-index', 'Сырьё в целом и доллар', 'Индекс цен на сырьё (МВФ, 2016 = 100)',
+    'Общий индекс мировых цен на сырьё: энергоносители, металлы, продовольствие. Помесячно.',
+    SRC.cmIndex, [['index', 'Индекс цен на сырьё', '--s-10y', '%{y:.1f}', 'Взвешенная корзина сырьевых цен МВФ.']]),
+  priceChart('cm-dollar', undefined, 'Индекс доллара США к валютам торговых партнёров',
+    'Сильный доллар обычно давит на цены сырья (оно торгуется в долларах) и на страны с долгами в долларах. Ежедневно, ФРС.',
+    SRC.dollar, [['dollar', 'Индекс доллара', '--s-30y', '%{y:.1f}', 'Номинальный широкий индекс доллара (ФРС), январь 2006 = 100.']]),
+);
+
+CM_MARKETS.forEach((m, k) => CHARTS.push({
+  tab: 'cm', id: `cm-cftc-${m.key.toLowerCase()}`, section: k === 0 ? 'Позиции участников: CFTC (США)' : undefined,
+  source: [...SRC.cftcDis, ...(m.price ? [fred(m.price, `цена: ${m.price}`)] : [])],
+  title: `${m.name}: лонги и шорты по группам, ${m.unit}`,
+  intro: `Еженедельно с 2006 года (${m.note}). Разбивки на физлиц и юрлиц в американских данных нет — ближе всего к ней группы участников: производители, своп-дилеры, фонды, мелкие трейдеры.`,
+  build: (I, tab) => ({
+    data: CM_GROUPS.flatMap((g) => longShortTraces(I.cm.cftc[m.key][g.key], g.name, g.color, m.unit, { hidden: g.hidden, digits: m.unit === 'т' ? 0 : 1 })),
+    layout: baseLayout(tab),
+    explain: [['Лонги и шорты', '--muted', m.price ? EXPLAIN.cmMoney : 'Позиции в тоннах золота: контракты × 100 унций. Сплошная линия — лонги, пунктир — шорты.'],
+      ...CM_GROUPS.map((g) => [g.name, g.color, EXPLAIN[g.explain]])],
+  }),
+}));
+
+MOEX_COMM.forEach((m, k) => CHARTS.push({
+  tab: 'cm', id: `cm-moex-${m.id}`, section: k === 0 ? 'Мосбиржа: физлица и юрлица' : undefined,
+  source: [...SRC.moexComm, ...(m.price ? [fred(m.price, 'цена (FRED)')] : [])],
+  title: `${m.name}: позиции физлиц и юрлиц на Мосбирже, ${m.unit}`,
+  intro: `Открытые позиции по сырьевым фьючерсам Мосбиржи отдельно для физлиц и юрлиц — на последний торговый день (${m.note}).`,
+  build: (I, tab) => ({
+    data: [
+      ...longShortTraces(I.cm.moex[m.id].FIZ, 'Физлица', '--s-3m', m.unit),
+      ...longShortTraces(I.cm.moex[m.id].YUR, 'Юрлица', '--s-10y', m.unit),
+    ],
+    layout: baseLayout(tab),
+    explain: [['Физлица', '--s-3m', EXPLAIN.futFiz], ['Юрлица', '--s-10y', EXPLAIN.futYur],
+      ['Лонги и шорты', '--muted', m.price ? 'Контракты переведены в доллары по цене товара на дату. Сплошная — лонги, пунктир — шорты.' : 'Позиции в единицах товара. Сплошная — лонги, пунктир — шорты.']],
+  }),
+}));
+
+/** Сводка вкладки «Сырьё и торговля». */
+function cmCards(I) {
+  const C = I.cm;
+  const priceCard = (label, s, unit, digits, chart, source, explain) => {
+    const v = last(s);
+    if (!v) return '';
+    const yearAgo = s.values[Math.max(0, lowerBound(s.dates, addMonths(v.date, -12)) - 1)];
+    const ch = (v.value / yearAgo - 1) * 100;
+    return card({
+      label, value: fmtNum(v.value, digits), unit, chart, source, explain,
+      zone: { label: `${fmtNum(ch, 0, true)}% за год`, color: Math.abs(ch) > 30 ? '--stress' : '--calm' },
+      detail: `на ${fmtDate(v.date)}`,
+    });
+  };
+  const prices = [
+    priceCard('Нефть Brent', C.brent, '$/барр.', 2, 'cm-oil', SRC.oil, 'Цена североморской нефти.'),
+    priceCard('Нефть WTI', C.wti, '$/барр.', 2, 'cm-oil', SRC.oil, 'Цена американской нефти.'),
+    priceCard('Газ Henry Hub', C.hh, '$/млн БТЕ', 2, 'cm-gas', SRC.gas, 'Цена газа в США.'),
+    priceCard('Газ в Европе (TTF)', C.ttf, '$/млн БТЕ', 2, 'cm-gas', SRC.gas, 'Цена газа в Европе, помесячно.'),
+    priceCard('Пшеница', C.wheat, '$/т', 0, 'cm-grain', SRC.grain, 'Мировая цена пшеницы, помесячно.'),
+    priceCard('Медь', C.copper, '$/т', 0, 'cm-copper', SRC.copper, 'Мировая цена меди — индикатор промышленного спроса.'),
+    priceCard('Индекс доллара', C.dollar, '', 1, 'cm-dollar', SRC.dollar, 'Курс доллара к валютам торговых партнёров США.'),
+  ];
+  const funds = CM_MARKETS.filter((m) => ['WTI', 'NG', 'WHEAT', 'GOLD'].includes(m.key)).map((m) => extremesCard({
+    label: `${m.name}: фонды, нетто`, unit: '% ОИ', digits: 1, signed: true, chart: `cm-cftc-${m.key.toLowerCase()}`,
+    explain: `${EXPLAIN.cmMM} Значение — чистая позиция фондов в % от всех открытых контрактов.`, source: SRC.cftcDis,
+  }, C.cftc[m.key].MM.netPct, { high: 'Фонды в сильном лонге', low: 'Фонды в сильном шорте' }));
+  const retail = MOEX_COMM.map((m) => extremesCard({
+    label: `${m.name}: физлица на Мосбирже, нетто`, unit: m.unit, digits: m.unit === 'т' ? 2 : 1, signed: true,
+    chart: `cm-moex-${m.id}`, explain: EXPLAIN.futFiz, source: SRC.moexComm,
+  }, C.moex[m.id].FIZ.net, { high: 'Розница в сильном лонге', low: 'Розница в сильном шорте' }));
+  return [['Цены', prices], ['Фонды в сырьевых фьючерсах (CFTC)', funds], ['Физлица на Мосбирже', retail]];
+}
+
+/** Карточки реальной доходности S&P 500 (вкладка США). */
+function spxRealCards(I) {
+  const r = last(I.spx.real), e = last(I.spx.erp);
+  const ey = I.spx.ey.values[I.spx.ey.dates.findIndex((d) => r && monthKey(d) === monthKey(r.date))];
+  const inf = r && I.spx.cpiYoY.values[I.spx.cpiYoY.dates.findIndex((d) => monthKey(d) === monthKey(r.date))];
+  return [
+    r && card({
+      label: 'Реальная доходность S&P 500', value: fmtNum(r.value, 2, true), unit: '%', chart: 'chart-spx-real', source: SRC.spxEy,
+      zone: r.value < 0 ? { label: 'Ниже инфляции', color: '--stress' } : r.value < 1 ? { label: 'Около нуля: акции дороги', color: '--caution' } : { label: 'Выше инфляции', color: '--calm' },
+      explain: EXPLAIN.realEy, detail: `${fmtMonth(r.date)}: прибыльная доходность ${fmtNum(ey, 2)}% − инфляция ${fmtNum(inf, 1)}%`,
+    }),
+    e && card({
+      label: 'Премия акций к 10-летним облигациям', value: fmtNum(e.value, 2, true), unit: 'п.п.', chart: 'chart-spx-real', source: SRC.spxEy,
+      zone: e.value < 0 ? { label: 'Облигации доходнее акций', color: '--caution' } : { label: 'Акции доходнее облигаций', color: '--calm' },
+      explain: EXPLAIN.erp, detail: `на ${fmtMonth(e.date)}`,
+    }),
+  ].filter(Boolean);
+}
+
+// ---------------------------------------------------------------------------
 // Отрисовка графиков и масштаб оси Y
 // ---------------------------------------------------------------------------
 
@@ -2206,6 +2480,13 @@ function buildPanels(tab) {
     <section class="panel" id="panel-${c.id}">
       <div class="panel-head">
         <h2>${escapeHtml(c.title)}</h2>
+        <div class="fs-tools" role="group" aria-label="Управление графиком">
+          <button data-mode="zoom" title="Протягивание мышью выделяет период и приближает его">Рамка — приблизить</button>
+          <button data-mode="pan" title="Протягивание мышью сдвигает график влево-вправо">Сдвиг</button>
+          <button data-act="in" title="Приблизить (↑)">+</button>
+          <button data-act="out" title="Отдалить (↓, двойной клик)">−</button>
+          <button data-act="all" title="Показать всю историю">Вся история</button>
+        </div>
         <button class="fs-btn" data-chart="${c.id}" aria-label="Открыть на весь экран" title="На весь экран">⛶</button>
       </div>
       <p class="note">${escapeHtml(c.intro)}</p>
@@ -2374,6 +2655,8 @@ function renderChart(def, tab = state.tab) {
     // чтобы легенда не съедала область графика; панель кнопок Plotly скрыта.
     // Сенсорный экран: встроенный зум Plotly выключен — сдвиг и масштаб делают свои жесты
     // (bindTouchGestures), а вертикальное протягивание прокручивает страницу.
+    // Ноутбук, весь экран: режим мыши выбирается кнопками (рамка-приближение или сдвиг).
+    if (!TOUCH.matches) layout.dragmode = state.fs === def.id ? state.dragmode : 'zoom';
     if (TOUCH.matches) {
       layout.dragmode = false;
       layout.xaxis.fixedrange = true;
@@ -2953,6 +3236,7 @@ function openFullscreen(id) {
   state.fs = id;
   panel.classList.add('fs');
   document.body.classList.add('fs-open');
+  panel.querySelectorAll('.fs-tools [data-mode]').forEach((b) => b.classList.toggle('active', b.dataset.mode === state.dragmode));
   const btn = panel.querySelector('.fs-btn');
   btn.textContent = '×';
   btn.setAttribute('aria-label', 'Свернуть');
@@ -3264,11 +3548,11 @@ function renderStatus() {
   status.classList.toggle('err', failed.length > 0);
 }
 
-/** Кнопки и пустые панели (оглавление, сводка, графики) для вкладок стран из COUNTRIES. */
+/** Кнопки и пустые панели (оглавление, сводка, графики) для вкладок стран и «Сырья и торговли». */
 function createCountryTabs() {
   const nav = $('.tabs');
   let toc = $('#toc-ru'), cards = $('#cards-ru'), charts = $('#charts-ru');
-  for (const c of COUNTRIES) {
+  for (const c of [...COUNTRIES, ...EXTRA_TABS]) {
     if (document.getElementById(`cards-${c.tab}`)) continue;
     nav.insertAdjacentHTML('beforeend', `<button role="tab" data-tab="${c.tab}" aria-selected="false">${c.name}</button>`);
     toc.insertAdjacentHTML('afterend', `<nav id="toc-${c.tab}" class="toc-wrap" aria-label="Содержание" hidden></nav>`);
@@ -3308,6 +3592,21 @@ function init() {
   });
 
   // Кнопки вкладок подключаются в createCountryTabs().
+
+  // Панель кнопок полноэкранного режима: режим мыши, масштаб, вся история.
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('.fs-tools button');
+    if (!b || !state.fs) return;
+    const el = document.getElementById(state.fs);
+    if (b.dataset.mode) {
+      state.dragmode = b.dataset.mode;
+      b.parentElement.querySelectorAll('[data-mode]').forEach((x) => x.classList.toggle('active', x === b));
+      state.syncing = true;
+      Plotly.relayout(el, { dragmode: state.dragmode }).finally(() => { state.syncing = false; });
+    } else if (b.dataset.act === 'in') zoomBy(el, 0.5);
+    else if (b.dataset.act === 'out') zoomBy(el, 2);
+    else if (b.dataset.act === 'all') applyPreset('all');
+  });
 
   // Весь экран: кнопка ⛶ / ×, Esc, перерисовка при повороте экрана.
   document.addEventListener('click', (e) => {

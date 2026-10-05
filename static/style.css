@@ -215,6 +215,14 @@ html.touch .chart { touch-action: pan-y; cursor: default; }
 }
 .chart { cursor: zoom-in; }
 
+/* Кнопки управления графиком — только в полноэкранном режиме на устройствах с мышью */
+.fs-tools { display: none; gap: 4px; flex-wrap: wrap; margin-left: auto; }
+.panel.fs .fs-tools { display: flex; }
+html.touch .fs-tools { display: none !important; }
+.fs-tools button { font-size: 13px; padding: 5px 10px; }
+.fs-tools button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.panel.fs .panel-head h2 { flex: 1 1 auto; }
+
 /* Весь экран: панель поверх страницы, график на всю высоту окна */
 body.fs-open { overflow: hidden; }
 .panel.fs {
