@@ -704,7 +704,7 @@ ZCYC_NAMES = {"OFZ_3M": "ОФЗ 3 мес", "OFZ_1Y": "ОФЗ 1 год", "OFZ_2Y"
 
 
 def fetch_cbr(_api_key):
-    """Банк России: ключевая ставка (с 2013) и официальный курс доллара (с 1992)."""
+    """Банк России: ключевая ставка (с 2013) и официальные курсы доллара и юаня."""
     today = dt.date.today()
     html = http_get("https://www.cbr.ru/hd_base/KeyRate/?UniDbQuery.Posted=True&UniDbQuery.From=17.09.2013"
                     f"&UniDbQuery.To={today:%d.%m.%Y}")
@@ -713,15 +713,24 @@ def fetch_cbr(_api_key):
     for d, v in zip(cells[::2], cells[1::2]):
         if re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", d):
             key.append((f"{d[6:]}-{d[3:5]}-{d[:2]}", float(v.replace(",", "."))))
-    xml = http_get("https://www.cbr.ru/scripts/XML_dynamic.asp?date_req1=01/01/1995"
-                   f"&date_req2={today:%d/%m/%Y}&VAL_NM_RQ=R01235", raw=True)
-    usd = []
-    for rec in ElementTree.fromstring(xml).iter("Record"):
-        d = rec.get("Date")
-        nominal = float(rec.findtext("Nominal").replace(",", "."))
-        usd.append((f"{d[6:]}-{d[3:5]}-{d[:2]}", float(rec.findtext("Value").replace(",", ".")) / nominal))
+    def rate(code):
+        """Официальный курс валюты к рублю за единицу (номинал ЦБ бывает 1, 10, 100 — делим)."""
+        xml = http_get("https://www.cbr.ru/scripts/XML_dynamic.asp?date_req1=01/01/1995"
+                       f"&date_req2={today:%d/%m/%Y}&VAL_NM_RQ={code}", raw=True)
+        pts = []
+        for rec in ElementTree.fromstring(xml).iter("Record"):
+            d = rec.get("Date")
+            nominal = float(rec.findtext("Nominal").replace(",", "."))
+            iso = f"{d[6:]}-{d[3:5]}-{d[:2]}"
+            value = float(rec.findtext("Value").replace(",", ".")) / nominal
+            if iso < "1998-01-01":
+                value /= 1000  # деноминация рубля 1 января 1998 г.: 1000 старых рублей = 1 новый
+            pts.append((iso, value))
+        return pts
+
     return [make_series("CBR_KEYRATE", "Ключевая ставка Банка России, %", "Банк России", key),
-            make_series("CBR_USDRUB", "Официальный курс доллара, ₽", "Банк России", usd)]
+            make_series("CBR_USDRUB", "Официальный курс доллара, ₽", "Банк России", rate("R01235")),
+            make_series("CBR_CNYRUB", "Официальный курс юаня, ₽", "Банк России", rate("R01375"))]
 
 
 # --- Бюджет России: Минфин и SIPRI ---------------------------------------------

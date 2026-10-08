@@ -717,6 +717,7 @@ function computeIndicators() {
     c: Object.fromEntries(COUNTRIES.map((cfg) => [cfg.tab, computeCountry(cfg)])),
     spx: computeSpxReal(),
     cm: computeCommodities(),
+    fx: computeFx(),
     re: { us: computeCountry(REAL_ESTATE.us), ru: computeCountry(REAL_ESTATE.ru) },
 
     budRev12, budOil12, budBal12,
@@ -1136,7 +1137,7 @@ function ruCards(I) {
 
 function renderCards(tab) {
   const I = state.ind;
-  const groups = tab === 'cm' ? cmCards(I) : tab === 'us'
+  const groups = tab === 'fx' ? fxCards(I) : tab === 'cm' ? cmCards(I) : tab === 'us'
     ? [...usCards(I), ['Реальная доходность акций', spxRealCards(I)], ['Недвижимость', realEstateCards(I.re.us, REAL_ESTATE.us, 'us')]]
     : tab === 'ru'
       ? [...ruCards(I), ['Валюта и недвижимость', [fxCard(I.re.ru.fx, REAL_ESTATE.ru.fx, 'ru-fx'), ...realEstateCards(I.re.ru, REAL_ESTATE.ru, 'ru')]]]
@@ -1189,7 +1190,7 @@ function bars(s, name, colorVar, hover, extra = {}) {
 
 /** Серые вертикальные полосы рецессий (США — NBER, Россия — периоды спада ВВП). */
 function recessionShapes(tab) {
-  const periods = tab === 'ru' ? RU_CRISES : (tab === 'us' || tab === 'cm') ? state.ind.recessions : ((state.ind.c[tab] || {}).bands || []);
+  const periods = tab === 'ru' ? RU_CRISES : (tab === 'us' || tab === 'cm' || tab === 'fx') ? state.ind.recessions : ((state.ind.c[tab] || {}).bands || []);
   return periods.map(([x0, x1]) => ({
     type: 'rect', xref: 'x', yref: 'paper', x0, x1, y0: 0, y1: 1,
     fillcolor: css('--recession'), line: { width: 0 }, layer: 'below', name: 'recession',
@@ -2465,6 +2466,173 @@ function spxRealCards(I) {
 }
 
 // ---------------------------------------------------------------------------
+// Вкладка «Валюты»: курсы к доллару, юань/рубль, сравнение стабильности
+// ---------------------------------------------------------------------------
+
+const CBR_FX_SRC = [['Банк России: официальные курсы', 'https://www.cbr.ru/currency_base/dynamics/']];
+
+// Курс = сколько местной валюты за 1 доллар (у евро и фунта FRED даёт обратную котировку — переворачиваем).
+const CURRENCIES = [
+  { key: 'eur', name: 'Евро', unit: '€', id: 'DEXUSEU', invert: true, color: '--s-10y', src: [fred('DEXUSEU')],
+    intro: 'Евро — вторая резервная валюта мира. Курс к доллару определяется разницей ставок ЕЦБ и ФРС и состоянием экономики еврозоны.' },
+  { key: 'gbp', name: 'Фунт', unit: '£', id: 'DEXUSUK', invert: true, color: '--s-5y', src: [fred('DEXUSUK')],
+    intro: 'Фунт стерлингов. Резкие падения — выход Великобритании из ERM в 1992 году, кризис 2008 года, референдум о Brexit в 2016 году, «мини-бюджет» 2022 года.' },
+  { key: 'jpy', name: 'Иена', unit: '¥', id: 'DEXJPUS', color: '--s-2y', src: [fred('DEXJPUS')],
+    intro: 'Иена — «тихая гавань» в кризисы, но при сверхнизких ставках Банка Японии сильно слабела к доллару (2013–2015, 2022–2024).' },
+  { key: 'cny', name: 'Юань', unit: '¥', id: 'DEXCHUS', color: '--panic', src: [fred('DEXCHUS')],
+    intro: 'Юань — управляемая валюта: Народный банк Китая каждый день задаёт ориентир, и курс может отклоняться от него лишь в узком коридоре. До 2005 года юань был жёстко привязан к доллару.' },
+  { key: 'hkd', name: 'Гонконгский доллар', unit: 'HK$', id: 'DEXHKUS', color: '--s-30y', src: [fred('DEXHKUS')], band: [7.75, 7.85],
+    intro: 'Гонконгский доллар с 1983 года привязан к доллару США: денежное управление удерживает курс в коридоре 7,75–7,85 (цветная полоса).' },
+  { key: 'rub', name: 'Рубль', unit: '₽', id: 'CBR_USDRUB', color: '--s-3m', src: CBR_FX_SRC,
+    intro: 'Официальный курс Банка России. Курсы до 1998 года пересчитаны в новые рубли (деноминация 1:1000). Скачки — 1998, 2008, 2014, 2022 годы.' },
+];
+
+Object.assign(EXPLAIN, {
+  fxRate: 'Сколько местной валюты стоит один доллар США. Рост линии — местная валюта дешевеет к доллару.',
+  fxRebase: 'Изменение курса к доллару с начала выбранного периода, в процентах: все валюты на одной шкале. Выше нуля — валюта ослабла к доллару, ниже — укрепилась. При смене периода отсчёт начинается заново.',
+  fxVol: 'Волатильность — насколько сильно курс колеблется день ко дню, в процентах годовых (стандартное отклонение дневных изменений за 3 месяца, приведённое к году). Чем ниже, тем стабильнее валюта: у привязанных валют — доли процента, у основных — 5–10%, в кризисы — десятки процентов.',
+  fxYoY: 'Изменение курса к доллару за последние 12 месяцев, %. Выше нуля — валюта ослабла.',
+  cnyrub: 'Сколько рублей стоит один юань (официальный курс ЦБ). После 2022 года юань стал главной иностранной валютой в российской торговле и сбережениях.',
+});
+
+// Стабильность валюты по годовой волатильности к доллару, %.
+const FX_STAB_ZONES = [
+  { max: 2, label: 'Почти фиксированный курс', color: '--calm' },
+  { max: 7, label: 'Стабильная', color: '--calm' },
+  { max: 12, label: 'Заметные колебания', color: '--caution' },
+  { max: Infinity, label: 'Нестабильная', color: '--stress' },
+];
+
+const FX_VOL_WINDOW = 63;   // ≈ 3 месяца торговых дней
+
+/** Скользящая волатильность: стандартное отклонение дневных лог-изменений за окно, в % годовых. */
+function rollingVol(s, w = FX_VOL_WINDOW) {
+  const dates = [], values = [];
+  const r = [];
+  for (let i = 1; i < s.values.length; i++) r.push(Math.log(s.values[i] / s.values[i - 1]));
+  let sum = 0, sum2 = 0;
+  for (let i = 0; i < r.length; i++) {
+    sum += r[i]; sum2 += r[i] * r[i];
+    if (i >= w) { sum -= r[i - w]; sum2 -= r[i - w] * r[i - w]; }
+    if (i >= w - 1) {
+      const mean = sum / w;
+      dates.push(s.dates[i + 1]);
+      values.push(Math.sqrt(Math.max(0, sum2 / w - mean * mean)) * Math.sqrt(252) * 100);
+    }
+  }
+  return { dates, values };
+}
+
+/** Изменение дневного ряда за 12 месяцев, % (значение «на дату» год назад). */
+function dailyYoY(s) {
+  const prev = { dates: s.dates.map((d) => addMonths(d, 12)), values: s.values };
+  return asof(s, prev, (now, then) => (now / then - 1) * 100);
+}
+
+function computeFx() {
+  const out = {};
+  for (const c of CURRENCIES) {
+    const raw = series(c.id);
+    const s = c.invert ? mapValues(raw, (v) => 1 / v) : raw;
+    const vol = rollingVol(s);
+    // Годовая волатильность — по последним 252 дням.
+    const yearVol = rollingVol({ dates: s.dates.slice(-253), values: s.values.slice(-253) }, 252);
+    out[c.key] = { rate: s, vol, yoy: dailyYoY(s), yearVol: last(yearVol) };
+  }
+  out.cnyrub = series('CBR_CNYRUB');
+  out.cnyrubVol = rollingVol(out.cnyrub);
+  return out;
+}
+
+TAB_BANDS.fx = { legend: 'Рецессии США (NBER)', explain: 'usrec', source: SRC.nber };
+OVERLAYS.fx = [['', 'нет'], ['sp500', 'S&P 500']];
+EXTRA_TABS.push({ tab: 'fx', name: 'Валюты' });
+
+const fxSrcAll = () => CURRENCIES.flatMap((c) => c.src);
+
+CURRENCIES.forEach((c, k) => CHARTS.push({
+  tab: 'fx', id: `fx-${c.key}`, section: k === 0 ? 'Курсы к доллару США' : undefined, source: c.src,
+  title: `${c.name}: ${c.unit} за 1 доллар`, intro: c.intro,
+  build: (I, tab) => ({
+    data: [line(I.fx[c.key].rate, `${c.name} за 1 $`, c.color, `%{y:,.${c.band ? 4 : 3}f} ${c.unit}`)],
+    layout: baseLayout(tab, c.band ? { shapes: [{ type: 'rect', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: c.band[0], y1: c.band[1],
+      fillcolor: withAlpha('--calm', 0.12), line: { width: 0 }, layer: 'below' }] } : {}),
+    explain: [[`${c.name} за 1 $`, c.color, EXPLAIN.fxRate]],
+  }),
+}));
+
+CHARTS.push({
+  tab: 'fx', id: 'fx-cnyrub', section: 'Юань и рубль', source: CBR_FX_SRC, title: 'Юань к рублю: рублей за 1 юань',
+  intro: 'Официальный курс Банка России. Кросс-курс, важный для российской внешней торговли после 2022 года.',
+  build: (I, tab) => ({
+    data: [line(I.fx.cnyrub, 'Рублей за 1 юань', '--panic', '%{y:,.3f} ₽')],
+    layout: baseLayout(tab),
+    explain: [['Рублей за 1 юань', '--panic', EXPLAIN.cnyrub]],
+  }),
+});
+
+CHARTS.push({
+  tab: 'fx', id: 'fx-rebase', section: 'Сравнение и стабильность валют', source: fxSrcAll(), rebase: true, includeZero: true,
+  title: 'Изменение к доллару с начала выбранного периода, %',
+  intro: 'Все валюты на одной шкале: сколько процентов каждая потеряла (выше нуля) или прибавила (ниже нуля) к доллару с первой даты выбранного периода. Выберите период кнопками или выделением — отсчёт начнётся с его начала.',
+  build: (I, tab) => ({
+    data: CURRENCIES.map((c) => {
+      const s = I.fx[c.key].rate;
+      const i0 = lowerBound(s.dates, state.range[0]);
+      const base = s.values[Math.min(i0, s.values.length - 1)];
+      return line({ dates: s.dates, values: s.values.map((v) => (v / base - 1) * 100) }, c.name, c.color, '%{y:+.1f}%');
+    }),
+    layout: baseLayout(tab, { unit: '%', zeroLine: true }),
+    explain: [['Изменение к доллару', '--muted', EXPLAIN.fxRebase]],
+  }),
+}, {
+  tab: 'fx', id: 'fx-vol', source: fxSrcAll(), title: 'Волатильность к доллару (за 3 месяца, % годовых)',
+  intro: 'Чем ниже линия, тем стабильнее валюта. Всплески показывают кризисы и девальвации; привязанные валюты (гонконгский доллар, юань до 2005 года) держатся у нуля.',
+  build: (I, tab) => ({
+    data: CURRENCIES.map((c) => line(I.fx[c.key].vol, c.name, c.color, '%{y:.1f}%')),
+    layout: baseLayout(tab, { unit: '%' }),
+    explain: [['Волатильность', '--muted', EXPLAIN.fxVol]],
+  }),
+}, {
+  tab: 'fx', id: 'fx-yoy', source: fxSrcAll(), title: 'Изменение к доллару за год, %', includeZero: true,
+  intro: 'На сколько процентов каждая валюта ослабла (выше нуля) или укрепилась (ниже нуля) к доллару за последние 12 месяцев.',
+  build: (I, tab) => ({
+    data: CURRENCIES.map((c) => line(I.fx[c.key].yoy, c.name, c.color, '%{y:+.1f}%')),
+    layout: baseLayout(tab, { unit: '%', zeroLine: true }),
+    explain: [['Изменение за год', '--muted', EXPLAIN.fxYoY]],
+  }),
+});
+
+/** Сводка вкладки «Валюты»: курс, изменение за год и стабильность каждой валюты. */
+function fxCards(I) {
+  const rows = CURRENCIES.map((c) => {
+    const d = I.fx[c.key], v = last(d.rate), y = last(d.yoy), vol = d.yearVol;
+    if (!v) return '';
+    return card({
+      label: `${c.name}: ${c.unit} за 1 $`, value: fmtNum(v.value, c.band ? 4 : 2), unit: c.unit, chart: `fx-${c.key}`, source: c.src,
+      zone: vol ? zoneOf(FX_STAB_ZONES, vol.value) : undefined,
+      explain: `${EXPLAIN.fxRate} Зона — по стабильности: волатильность к доллару за последний год.`,
+      detail: `на ${fmtDate(v.date)} · за год: ${fmtNum(y?.value, 1, true)}% · волатильность за год: ${fmtNum(vol?.value, 1)}%`,
+    });
+  });
+  const cr = last(I.fx.cnyrub);
+  const cry = cr && I.fx.cnyrub.values[Math.max(0, lowerBound(I.fx.cnyrub.dates, addMonths(cr.date, -12)) - 1)];
+  const cross = cr ? [card({
+    label: 'Юань: ₽ за 1 юань', value: fmtNum(cr.value, 3), unit: '₽', chart: 'fx-cnyrub', source: CBR_FX_SRC,
+    explain: EXPLAIN.cnyrub, detail: `на ${fmtDate(cr.date)} · за год: ${fmtNum((cr.value / cry - 1) * 100, 1, true)}%`,
+  })] : [];
+  // Рейтинг стабильности: от самой стабильной валюты к самой нестабильной.
+  const ranked = CURRENCIES.filter((c) => I.fx[c.key].yearVol).sort((a, b) => I.fx[a.key].yearVol.value - I.fx[b.key].yearVol.value);
+  const rank = ranked.length ? [card({
+    label: 'Стабильность к доллару за год', value: '', chart: 'fx-vol', source: fxSrcAll(),
+    explain: EXPLAIN.fxVol,
+    extraHtml: `<ol class="rank">${ranked.map((c) => `<li><span class="swatch" style="background: var(${c.color})"></span>${c.name} — ${fmtNum(I.fx[c.key].yearVol.value, 1)}%</li>`).join('')}</ol>`,
+    detail: 'годовая волатильность: чем меньше, тем стабильнее',
+  })] : [];
+  return [['Курсы к доллару', [...rows, ...cross]], ['Стабильность', rank]];
+}
+
+// ---------------------------------------------------------------------------
 // Отрисовка графиков и масштаб оси Y
 // ---------------------------------------------------------------------------
 
@@ -3348,6 +3516,7 @@ function setRange(from, to, presetKey = null) {
   Promise.all(tabCharts(state.tab).map((def) => {
     const el = document.getElementById(def.id);
     if (!el || !el.data) return null;
+    if (def.rebase) return renderChart(def);   // отсчёт «от начала периода» пересчитывается заново
     return Plotly.relayout(el, axisUpdate(el.data, def));
   })).finally(() => { state.syncing = false; });
 }
